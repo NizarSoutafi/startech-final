@@ -4,9 +4,9 @@ FROM python:3.10
 # 2. Dossier de travail
 WORKDIR /code
 
-# --- CORRECTION CRITIQUE ICI ---
-# On installe les librairies système manquantes pour OpenCV (libGL)
-RUN apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0
+# --- CORRECTION ICI ---
+# "libgl1-mesa-glx" n'existe plus, on utilise le nouveau nom "libgl1"
+RUN apt-get update && apt-get install -y libgl1 libglib2.0-0
 
 # 3. Copie des requirements
 COPY ./backend/requirements.txt /code/requirements.txt
