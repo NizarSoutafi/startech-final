@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-socketio
+deepface
+opencv-python-headless<4.10
+numpy<2
+supabase
+tf-keras
+tensorflow
