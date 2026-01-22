@@ -10,6 +10,9 @@ import { ArrowLeft, Calendar, Database, FileText, Trash2, Clock, Activity, Thumb
 import Link from "next/link"
 import ComparisonChart from "@/components/neurolink/comparison-chart"
 
+// --- CORRECTION ICI : On récupère l'URL du Cloud définie dans Vercel ---
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
 const CircularProgress = ({ value, color, label, icon: Icon }: any) => {
     const radius = 30; const circumference = 2 * Math.PI * radius; const offset = circumference - (value / 100) * circumference
     return (
@@ -37,11 +40,19 @@ export default function AdminPage() {
   useEffect(() => {
     const token = localStorage.getItem("startech_admin_token")
     if (token !== "authorized_access_granted") { router.push("/admin/login") } 
-    else { setIsAuthorized(true); fetch('http://localhost:8000/api/sessions').then(res => res.json()).then(data => setSessions(data)) }
+    else { 
+        setIsAuthorized(true); 
+        // --- UTILISATION DE L'API CLOUD ---
+        fetch(`${API_URL}/api/sessions`)
+            .then(res => res.json())
+            .then(data => setSessions(data))
+            .catch(err => console.error("Erreur chargement sessions:", err))
+    }
   }, [])
 
   const handleSelectSession = (sessionId: number) => {
-    fetch(`http://localhost:8000/api/sessions/${sessionId}`).then(res => res.json()).then(response => {
+    // --- UTILISATION DE L'API CLOUD ---
+    fetch(`${API_URL}/api/sessions/${sessionId}`).then(res => res.json()).then(response => {
         const info = response.info; const data = response.data; const stats = calculateStatsInternal(data)
         if (isCompareMode) {
             if (!sessionA) { setSessionA(info); setDataA(data); setStatsA(stats) } 
@@ -59,7 +70,8 @@ export default function AdminPage() {
   const toggleCompareMode = () => { setIsCompareMode(!isCompareMode); setSessionB(null); setDataB([]); setStatsB(null) }
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: number) => {
     e.stopPropagation(); if (!confirm("Supprimer définitivement ?")) return
-    const res = await fetch(`http://localhost:8000/api/sessions/${sessionId}`, { method: 'DELETE' })
+    // --- UTILISATION DE L'API CLOUD ---
+    const res = await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: 'DELETE' })
     if (res.ok) { setSessions(prev => prev.filter(s => s.id !== sessionId)); if (sessionA?.id === sessionId) { setSessionA(null); setDataA([]); setStatsA(null) }; if (sessionB?.id === sessionId) { setSessionB(null); setDataB([]); setStatsB(null) } }
   }
   const handleExport = (session: any, data: any) => {
@@ -70,12 +82,9 @@ export default function AdminPage() {
     const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.setAttribute("download", `Rapport_${session.first_name}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
   
-  // CORRECTION DE LA DATE ICI : On gère created_at de Supabase
   const formatDate = (dateStr: string) => {
       if (!dateStr) return "Date inconnue";
-      try {
-        return new Date(dateStr).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' })
-      } catch (e) { return "Erreur date" }
+      try { return new Date(dateStr).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) } catch (e) { return "Erreur date" }
   }
 
   if (!isAuthorized) return null
@@ -106,7 +115,6 @@ export default function AdminPage() {
                             <div key={session.id} onClick={() => handleSelectSession(session.id)} className={`group flex items-center justify-between p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-all ${activeClass}`}>
                                 <div>
                                     <div className="font-bold flex items-center gap-2 text-slate-800">{session.first_name} {session.last_name} {isA && <Badge className="bg-blue-500 h-4 px-1 text-[9px]">A</Badge>} {isB && <Badge className="bg-orange-500 h-4 px-1 text-[9px]">B</Badge>}</div>
-                                    {/* CORRECTION ICI : created_at au lieu de start_time */}
                                     <div className="text-xs text-slate-500 mt-1 flex items-center gap-2"><Calendar className="w-3 h-3" /> {formatDate(session.created_at)}</div>
                                 </div>
                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 opacity-0 group-hover:opacity-100" onClick={(e) => handleDeleteSession(e, session.id)}><Trash2 className="w-4 h-4 hover:text-red-500" /></Button>
