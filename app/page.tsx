@@ -11,6 +11,9 @@ import { Play, Square, RotateCcw, Zap, User, Fingerprint, Shield, Target } from 
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
+// --- CONFIGURATION CLOUD (Indispensable pour Vercel) ---
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
 interface MetricData { timestamp: number; value: number; engagement: number; satisfaction: number; trust: number; }
 interface UserInfo { firstName: string; lastName: string; clientId: string }
 
@@ -41,7 +44,7 @@ export default function Dashboard() {
   // 2. Logique Socket & Envoi d'images
   useEffect(() => {
     if (!userInfo) return;
-    const newSocket = io("http://localhost:8000")
+    const newSocket = io(API_URL, { transports: ["websocket", "polling"] })
     newSocket.on("connect", () => setIsConnected(true))
     newSocket.on("disconnect", () => setIsConnected(false))
     
@@ -114,10 +117,11 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
-        <div className="flex h-16 items-center px-6 justify-between">
+        <div className="flex h-16 items-center px-4 md:px-6 justify-between">
            <div className="flex items-center gap-3 font-bold text-xl tracking-tight text-slate-900"><div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_15px_#22c55e] animate-pulse" />STARTECH <span className="text-slate-400 font-normal">VISION</span></div>
            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3 px-4 py-1.5 bg-slate-100 rounded-full border border-slate-200">
+              {/* Le badge utilisateur : caché sur mobile, visible sur PC (hidden md:flex) */}
+              <div className="hidden md:flex items-center gap-3 px-4 py-1.5 bg-slate-100 rounded-full border border-slate-200">
                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-700 flex items-center justify-center text-xs font-bold text-white">{userInfo.firstName.charAt(0)}{userInfo.lastName.charAt(0)}</div>
                  <div className="flex flex-col"><span className="text-sm font-bold text-slate-900 leading-none">{userInfo.firstName} {userInfo.lastName}</span><span className="text-[10px] text-slate-500 leading-none mt-1">{userInfo.clientId || "ID: GUEST"}</span></div>
               </div>
@@ -125,9 +129,12 @@ export default function Dashboard() {
            </div>
         </div>
       </header>
-      <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-hidden flex flex-col gap-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full min-h-[600px]">
-          <div className="lg:col-span-7 flex flex-col h-full">
+      <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto overflow-x-hidden flex flex-col gap-6">
+        {/* GRILLE RESPONSIVE : 1 colonne par défaut (mobile), 12 colonnes sur grand écran (lg) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-full lg:min-h-[600px]">
+          
+          {/* ZONE CAMERA : 7 colonnes sur PC, toute la largeur sur mobile */}
+          <div className="lg:col-span-7 flex flex-col h-[500px] lg:h-full min-h-[400px]">
             <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden transition-all duration-500 flex-1 flex flex-col group">
               <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
               <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
@@ -147,28 +154,30 @@ export default function Dashboard() {
                     <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-10 bg-[length:100%_4px,6px_100%] pointer-events-none" />
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30"><Target className="w-64 h-64 text-white stroke-1" /></div>
-                <div className="z-20 w-full px-8 pb-8 mt-auto absolute bottom-0">
-                  <div className="flex justify-between items-end mb-8">
+                <div className="z-20 w-full px-4 md:px-8 pb-4 md:pb-8 mt-auto absolute bottom-0">
+                  <div className="flex flex-col md:flex-row justify-between items-end mb-4 md:mb-8 gap-4">
                     <div>
                        <div className="flex items-center gap-2 mb-2"><Badge variant="outline" className={`px-3 py-1 border-none backdrop-blur-md ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}><div className={`w-2 h-2 rounded-full mr-2 ${isRecording ? "bg-white" : "bg-slate-300"}`} />{isRecording ? "ENREGISTREMENT" : "PRÊT"}</Badge></div>
-                       <div className="text-7xl font-mono font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">{formatTime(sessionTime)}</div>
+                       <div className="text-5xl md:text-7xl font-mono font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">{formatTime(sessionTime)}</div>
                     </div>
-                    <div className="text-right">
-                        <div className="bg-white/90 backdrop-blur-xl px-6 py-4 rounded-xl border border-white shadow-2xl">
+                    <div className="text-right w-full md:w-auto">
+                        <div className="bg-white/90 backdrop-blur-xl px-4 md:px-6 py-2 md:py-4 rounded-xl border border-white shadow-2xl">
                             <span className="block text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Emotion Dominante</span>
-                            <span className="text-3xl font-bold text-slate-900 flex items-center justify-end gap-3">{getEmotionDisplay(currentMetrics.emotion)}</span>
+                            <span className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center justify-end gap-3">{getEmotionDisplay(currentMetrics.emotion)}</span>
                         </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-center gap-8 pt-6 border-t border-white/20">
-                    <Button size="icon" variant="outline" onClick={handleReset} className="h-14 w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all"><RotateCcw className="h-5 w-5" /></Button>
-                    {!isRecording ? (<Button onClick={handleStartStop} className="bg-green-600 hover:bg-green-500 text-white px-10 h-14 text-lg font-bold rounded-full shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-all hover:scale-105"><Play className="mr-2 h-5 w-5 fill-current" /> DÉMARRER</Button>) : (<Button onClick={handleStartStop} variant="destructive" className="px-10 h-14 text-lg font-bold rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all hover:scale-105"><Square className="mr-2 h-5 w-5 fill-current" /> STOP</Button>)}
+                  <div className="flex items-center justify-center gap-4 md:gap-8 pt-4 md:pt-6 border-t border-white/20">
+                    <Button size="icon" variant="outline" onClick={handleReset} className="h-12 w-12 md:h-14 md:w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all"><RotateCcw className="h-5 w-5" /></Button>
+                    {!isRecording ? (<Button onClick={handleStartStop} className="bg-green-600 hover:bg-green-500 text-white px-6 md:px-10 h-12 md:h-14 text-lg font-bold rounded-full shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-all hover:scale-105 w-full md:w-auto"><Play className="mr-2 h-5 w-5 fill-current" /> DÉMARRER</Button>) : (<Button onClick={handleStartStop} variant="destructive" className="px-6 md:px-10 h-12 md:h-14 text-lg font-bold rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all hover:scale-105 w-full md:w-auto"><Square className="mr-2 h-5 w-5 fill-current" /> STOP</Button>)}
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
-          <div className="lg:col-span-5 flex flex-col h-full gap-4">
+          
+          {/* ZONE METRIQUES : 5 colonnes sur PC, toute la largeur sur mobile */}
+          <div className="lg:col-span-5 flex flex-col h-auto lg:h-full gap-4 pb-8 lg:pb-0">
             <MetricsPanel metrics={currentMetrics} />
             <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm flex justify-between items-center text-xs font-mono text-slate-500 mt-auto">
                <div className="flex items-center gap-2"><Zap className={`w-3 h-3 ${isConnected ? "text-green-500" : "text-red-500"}`} />SERVEUR STARTECH</div>
