@@ -67,7 +67,7 @@ export default function MetricsPanel({ metrics }: MetricsPanelProps) {
           <div className={`text-2xl font-bold ${getColor(metrics.satisfaction)}`}>
             {metrics.satisfaction}%
           </div>
-          <p className="text-xs text-slate-500 mt-1">Valence positive</p>
+          <p className="text-xs text-slate-500 mt-1">Valeur positive</p>
           <div className="w-full bg-slate-100 h-1.5 mt-2 rounded-full overflow-hidden">
             <motion.div 
               className="h-full bg-green-500" 
