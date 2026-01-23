@@ -12,7 +12,7 @@ from datetime import datetime
 from deepface import DeepFace
 from supabase import create_client, Client
 
-# --- CONFIGURATION SUPABASE (COMPATIBLE CLOUD & LOCAL) ---
+# --- CONFIGURATION SUPABASE ---
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gwjrwejdjpctizolfkcz.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3anJ3ZWpkanBjdGl6b2xma2N6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTA5ODEyNCwiZXhwIjoyMDg0Njc0MTI0fQ.EjU1DGTN-jrdkaC6nJWilFtYZgtu-NKjnfiMVMnHal0")
 
@@ -20,14 +20,13 @@ try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     print("☁️ Connecté à Supabase")
 except Exception as e:
-    print(f"❌ Erreur Supabase : {e}")
+    print(f"❌ Erreur connexion Supabase : {e}")
 
-# --- CONFIGURATION SERVEUR (CORS FIXED) ---
-# C'est ici que la magie opère : cors_allowed_origins='*' autorise tout le monde
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+# --- CONFIGURATION SERVEUR & SÉCURITÉ (CORS) ---
+# C'EST ICI LA CORRECTION CRITIQUE :
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')  # <--- INDISPENSABLE
 
 app = FastAPI()
-# Middleware pour autoriser les requêtes API REST
 app.add_middleware(
     CORSMiddleware, 
     allow_origins=["*"], 
@@ -37,7 +36,7 @@ app.add_middleware(
 )
 socket_app = socketio.ASGIApp(sio, app)
 
-# --- API REST ---
+# --- API REST (Admin) ---
 @app.get("/api/sessions")
 def get_sessions():
     response = supabase.table('sessions').select("*").order('id', desc=True).execute()
@@ -145,7 +144,7 @@ async def session_manager_loop():
 
 @sio.event
 async def connect(sid, environ): 
-    print(f"Client connecté: {sid}")
+    print(f"✅ Client connecté: {sid}")
     active_sessions[sid] = { "is_recording": False, "session_time": 0, "db_id": None }
 
 @sio.event
