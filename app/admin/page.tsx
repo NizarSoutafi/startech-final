@@ -50,36 +50,48 @@ export default function AdminDashboard() {
     } catch (e) { alert("Erreur suppression") }
   }
 
-  // --- FONCTION EXPORT CSV ---
+  // --- CORRECTION EXPORT CSV (FORMAT EXCEL) ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     
-    // En-têtes du CSV
-    let csvContent = "data:text/csv;charset=utf-8," 
-    csvContent += "Temps (s),Emotion,Score IA,Engagement,Satisfaction,Confiance,Fidelite,Avis Global\n"
+    // 1. On utilise le point-virgule (;) qui est le standard Excel en France/Maroc
+    const separator = ";"
+    
+    // 2. On ajoute le "BOM" (\uFEFF) pour que Excel comprenne que c'est du texte (UTF-8) et affiche bien les accents
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+    
+    // 3. En-têtes
+    csvContent += `Temps (s)${separator}Emotion${separator}Score IA${separator}Engagement${separator}Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis Global\n`
 
-    // Lignes de données
+    // 4. Données
     measurements.forEach((m) => {
+        // On remplace les points décimaux par des virgules pour les chiffres (Excel FR aime les virgules)
+        const score = m.emotion_score ? m.emotion_score.toString().replace('.', ',') : '0'
+        
         const row = [
             m.session_time,
             m.emotion,
-            m.emotion_score,
-            m.engagement_val,
-            m.satisfaction_val,
-            m.trust_val,
-            m.loyalty_val, // Fidélité
-            m.opinion_val  // Avis
-        ].join(",")
+            score,
+            Math.round(m.engagement_val),
+            Math.round(m.satisfaction_val),
+            Math.round(m.trust_val),
+            Math.round(m.loyalty_val),
+            Math.round(m.opinion_val)
+        ].join(separator)
+        
         csvContent += row + "\n"
     })
 
-    // Téléchargement
+    // 5. Téléchargement
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a")
     link.setAttribute("href", encodedUri)
-    link.setAttribute("download", `SESSION_${selectedSession.last_name}_${selectedSession.client_id}.csv`)
+    // Nom du fichier propre
+    const filename = `Rapport_${selectedSession.first_name}_${selectedSession.last_name}_${new Date().toISOString().slice(0,10)}.csv`
+    link.setAttribute("download", filename)
     document.body.appendChild(link)
     link.click()
+    document.body.removeChild(link)
   }
 
   const formatDate = (dateString: string) => {
@@ -165,11 +177,11 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
 
-              {/* TABLEAU COMPLET AVEC FIDÉLITÉ & AVIS */}
+              {/* TABLEAU COMPLET */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
-                    <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2"><Download className="w-4 h-4"/> Export CSV</Button>
+                    <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-lg"><Download className="w-4 h-4"/> Export CSV</Button>
                 </CardHeader>
                 <div className="overflow-x-auto max-h-[400px]">
                   <table className="w-full text-sm text-left">
