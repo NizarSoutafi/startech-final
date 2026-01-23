@@ -77,14 +77,14 @@ export default function AdminDashboard() {
 
   const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
 
-  // --- EXPORT CSV MISE À JOUR ---
+  // --- EXPORT CSV (TITRES COMPLETS) ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
     
-    // En-têtes mis à jour avec "Implication Client"
-    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Implication Client${separator}Label Implication${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis\n`
+    // Titres complets sans abréviations
+    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Implication Client${separator}Label Implication${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis Global\n`
 
     measurements.forEach((m) => {
         const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
@@ -184,7 +184,7 @@ export default function AdminDashboard() {
         <div className="lg:col-span-9 space-y-6">
           {selectedSession ? (
             <>
-              {/* KPIs (Labels Mis à Jour) */}
+              {/* KPIs */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Implication Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
@@ -214,7 +214,7 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
 
-              {/* TABLEAU CORRIGÉ (TITRES ENTIERS & IMPLICATION) */}
+              {/* TABLEAU AVEC NOMS COMPLETS */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
@@ -224,17 +224,17 @@ export default function AdminDashboard() {
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
                       <tr>
-                        {/* whitespace-nowrap force l'affichage sur une ligne */}
+                        {/* Noms complets demandés */}
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Temps</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Implication Client</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Impl.</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Sat.</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Sat.</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Conf.</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Implication</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Satisfaction</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Confiance</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap bg-green-50/50">Fidélité</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis Global</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -243,12 +243,13 @@ export default function AdminDashboard() {
                           <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
                           <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
                           <td className="px-4 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
-                          {/* Colonne Implication Client */}
+                          
                           <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.engagement_lbl}</td>
                           
                           <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.satisfaction_lbl}</td>
+                          
                           <td className="px-4 py-3 font-bold text-slate-700">{Math.round(m.trust_val)}%</td>
                           <td className="px-4 py-3 font-bold text-green-700 bg-green-50/30">{Math.round(m.loyalty_val)}%</td>
                           <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
