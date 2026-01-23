@@ -11,6 +11,12 @@ import { Play, Square, RotateCcw, Zap, User, Fingerprint, Shield, Target } from 
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
+// --- C'EST ICI LA MODIFICATION IMPORTANTE ---
+// Le site choisira tout seul la bonne adresse :
+// 1. Sur Vercel : Il prendra la variable d'environnement (Hugging Face)
+// 2. Sur votre PC : Il prendra localhost:8000
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
 interface MetricData { timestamp: number; value: number; engagement: number; satisfaction: number; trust: number; }
 interface UserInfo { firstName: string; lastName: string; clientId: string }
 
@@ -41,9 +47,23 @@ export default function Dashboard() {
   // 2. Logique Socket & Envoi d'images
   useEffect(() => {
     if (!userInfo) return;
-    const newSocket = io("http://localhost:8000")
-    newSocket.on("connect", () => setIsConnected(true))
-    newSocket.on("disconnect", () => setIsConnected(false))
+    
+    // CONNEXION AVEC L'ADRESSE INTELLIGENTE
+    console.log("Tentative de connexion vers :", API_URL)
+    
+    const newSocket = io(API_URL, {
+        transports: ["websocket", "polling"] // On assure la compatibilité maximale
+    })
+    
+    newSocket.on("connect", () => {
+        console.log("✅ Connecté au serveur !")
+        setIsConnected(true)
+    })
+    
+    newSocket.on("disconnect", () => {
+        console.log("❌ Déconnecté")
+        setIsConnected(false)
+    })
     
     newSocket.on("metrics_update", (data: any) => {
       setSessionTime(data.session_time); setIsRecording(data.is_recording)
@@ -66,7 +86,7 @@ export default function Dashboard() {
 
     setSocket(newSocket)
 
-    // Envoi 5 fois par seconde
+    // Envoi 5 fois par seconde (Optimisé)
     const interval = setInterval(() => {
         if (videoRef.current && canvasRef.current && newSocket.connected) {
             const ctx = canvasRef.current.getContext('2d')

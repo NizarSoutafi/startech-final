@@ -20,14 +20,12 @@ try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     print("☁️ Connecté à Supabase")
 except Exception as e:
-    print(f"❌ Erreur connexion Supabase : {e}")
+    print(f"❌ Erreur Supabase : {e}")
 
-# --- CONFIGURATION SERVEUR & SÉCURITÉ (CORS) ---
-# C'EST ICI LA CORRECTION CRITIQUE (LIGNE 25) :
+# --- CONFIGURATION SERVEUR (CORS FIXED) ---
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 
 app = FastAPI()
-# Middleware pour autoriser les requêtes API REST classiques
 app.add_middleware(
     CORSMiddleware, 
     allow_origins=["*"], 
@@ -37,7 +35,7 @@ app.add_middleware(
 )
 socket_app = socketio.ASGIApp(sio, app)
 
-# --- API REST (Admin) ---
+# --- API REST ---
 @app.get("/api/sessions")
 def get_sessions():
     response = supabase.table('sessions').select("*").order('id', desc=True).execute()
@@ -58,7 +56,7 @@ def delete_session(session_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- LOGIQUE MÉTIER (DeepFace + KPIs) ---
+# --- LOGIQUE MÉTIER ---
 def calculate_kpis(emotion):
     valence = 0.0; arousal = 0.0; noise = random.uniform(-0.05, 0.05)
     if emotion == "happy": valence = 0.8 + noise; arousal = 0.6 + noise
@@ -75,7 +73,6 @@ def calculate_kpis(emotion):
     val_loy = clamp((val_sat * 0.7) + (val_tru * 0.3))
     val_opi = val_sat
 
-    # Labels
     if val_eng >= 75: lbl_eng = "Engagement Fort 🔥"
     elif val_eng >= 40: lbl_eng = "Engagement Moyen"
     else: lbl_eng = "Désengagement 💤"
@@ -100,7 +97,6 @@ async def process_frame(sid, data_uri):
         nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
-        # Analyse DeepFace
         result = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False, silent=True)
         data = result[0] if isinstance(result, list) else result
         
@@ -142,11 +138,11 @@ async def session_manager_loop():
                 "session_time": user_data["session_time"], 
                 "is_recording": user_data["is_recording"]
             }, room=sid)
-        await asyncio.sleep(1) # Mise à jour chaque seconde
+        await asyncio.sleep(1)
 
 @sio.event
 async def connect(sid, environ): 
-    print(f"✅ Client connecté: {sid}")
+    print(f"Client connecté: {sid}")
     active_sessions[sid] = { "is_recording": False, "session_time": 0, "db_id": None }
 
 @sio.event
