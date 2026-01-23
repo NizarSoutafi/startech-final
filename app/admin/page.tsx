@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label"
 import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-// IMPORTS PDF
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 
@@ -40,28 +39,21 @@ export default function AdminDashboard() {
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
-  // 1. Vérifier la session au chargement
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       if (session) fetchSessions()
     })
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       if (session) fetchSessions()
     })
-
     return () => subscription.unsubscribe()
   }, [])
 
-  // --- LOGIQUE AUTHENTIFICATION ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setAuthLoading(true)
-    setAuthError("")
+    setAuthLoading(true); setAuthError("")
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setAuthError("Email ou mot de passe incorrect.")
     setAuthLoading(false)
@@ -72,7 +64,6 @@ export default function AdminDashboard() {
     setSession(null); setSessions([]); setSelectedSession(null)
   }
 
-  // --- LOGIQUE DASHBOARD ---
   const fetchSessions = async () => {
     setIsLoading(true)
     try {
@@ -84,8 +75,7 @@ export default function AdminDashboard() {
   }
 
   const handleSelectSession = async (sessionId: number) => {
-    setLoadingDetails(true)
-    setSelectedSession(null)
+    setLoadingDetails(true); setSelectedSession(null)
     try {
       const res = await fetch(`${API_URL}/api/sessions/${sessionId}`)
       const data = await res.json()
@@ -127,16 +117,8 @@ export default function AdminDashboard() {
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  const getAvisLabel = (val: number) => val > 60 ? "Avis Positif" : (val < 40 ? "Avis Négatif" : "Avis Neutre")
+  const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-  }
-
-  const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
-  const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
-
-  // --- EXPORT CSV ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
@@ -156,84 +138,88 @@ export default function AdminDashboard() {
     link.setAttribute("href", encodedUri)
     const filename = `Rapport_${selectedSession.first_name}_${selectedSession.last_name}.csv`
     link.setAttribute("download", filename)
-    document.body.appendChild(link)
-    link.click(); document.body.removeChild(link)
+    document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
 
-  // --- EXPORT PDF PROFESSIONNEL ---
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
+  const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
+
+  // --- EXPORT PDF CORRIGÉ (SANS EMOJIS) ---
+  const stripEmojis = (str: string) => {
+      return str
+        .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
+        .trim();
+  }
+
   const handleExportPDF = () => {
     if (!measurements.length || !selectedSession) return
 
     const doc = new jsPDF()
 
-    // 1. En-tête / Logo
-    doc.setFillColor(34, 197, 94) // Vert Startech
-    doc.rect(0, 0, 210, 20, 'F')
-    doc.setTextColor(255, 255, 255)
-    doc.setFontSize(16)
-    doc.setFont("helvetica", "bold")
-    doc.text("STARTECH VISION - RAPPORT D'ANALYSE", 105, 13, { align: "center" })
+    // En-tête vert
+    doc.setFillColor(34, 197, 94); doc.rect(0, 0, 210, 24, 'F')
+    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold")
+    doc.text("STARTECH VISION", 14, 16)
+    doc.setFontSize(10); doc.setFont("helvetica", "normal")
+    doc.text("RAPPORT D'ANALYSE BIOMÉTRIQUE", 200, 16, { align: "right" })
 
-    // 2. Infos Client
-    doc.setTextColor(0, 0, 0)
-    doc.setFontSize(10)
-    doc.setFont("helvetica", "normal")
+    // Infos Client
+    doc.setTextColor(0, 0, 0); doc.setFontSize(10)
+    doc.text(`Client : ${selectedSession.first_name} ${selectedSession.last_name}`, 14, 35)
+    doc.text(`ID Projet : ${selectedSession.client_id || "N/A"}`, 14, 41)
+    doc.text(`Date : ${formatDate(selectedSession.created_at)}`, 14, 47)
+    doc.text(`Durée : ${measurements.length} secondes`, 14, 53)
+
+    // Résumé (Encadré Gris)
+    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 60, 182, 25, 2, 2, 'F')
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11)
+    doc.text("SYNTHÈSE DE LA SESSION", 105, 68, { align: "center" })
     
-    doc.text(`Client : ${selectedSession.first_name} ${selectedSession.last_name}`, 14, 30)
-    doc.text(`ID Projet : ${selectedSession.client_id || "N/A"}`, 14, 36)
-    doc.text(`Date : ${formatDate(selectedSession.created_at)}`, 14, 42)
-    doc.text(`Durée : ${measurements.length} secondes`, 14, 48)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10)
+    // On retire les émojis pour l'affichage PDF
+    const lastAvisRaw = measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A"
+    const lastAvisClean = stripEmojis(lastAvisRaw)
 
-    // 3. Résumé KPIs (Encadré)
-    doc.setFillColor(245, 245, 245)
-    doc.roundedRect(14, 55, 180, 20, 3, 3, 'F')
-    doc.setFontSize(11)
-    doc.setFont("helvetica", "bold")
-    doc.text("RÉSUMÉ DE LA SESSION", 105, 62, { align: "center" })
-    
-    doc.setFontSize(10)
-    doc.setFont("helvetica", "normal")
-    // Engagement
-    doc.text(`Implication Moy. : ${avgEngagement}%`, 30, 70)
-    // Satisfaction
-    doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 100, 70)
-    // Avis Global (Basé sur la dernière mesure)
-    const lastAvis = measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A"
-    doc.text(`Tendance : ${lastAvis}`, 160, 70)
+    doc.text(`Implication Moy. : ${avgEngagement}%`, 25, 78)
+    doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 90, 78)
+    doc.text(`Tendance : ${lastAvisClean}`, 155, 78)
 
-    // 4. Tableau de Données
+    // Tableau de données
     const tableRows = measurements.map(m => [
       m.session_time,
       m.emotion?.toUpperCase(),
       m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-',
-      m.engagement_lbl,
-      m.satisfaction_lbl,
-      getAvisLabel(m.opinion_val)
+      stripEmojis(m.engagement_lbl), // Nettoyage
+      stripEmojis(m.satisfaction_lbl), // Nettoyage
+      stripEmojis(getAvisLabel(m.opinion_val)) // Nettoyage
     ])
 
     autoTable(doc, {
       head: [['T(s)', 'Emotion', 'Score', 'Implication', 'Satisfaction', 'Avis']],
       body: tableRows,
-      startY: 85,
+      startY: 95,
       theme: 'grid',
-      headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold' },
-      styles: { fontSize: 8, cellPadding: 2 },
-      alternateRowStyles: { fillColor: [240, 253, 244] } // Vert très clair alterné
+      headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' },
+      bodyStyles: { textColor: 50, halign: 'center' },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      styles: { fontSize: 9, cellPadding: 3 }
     })
 
-    // 5. Pied de page
+    // Pied de page
     const pageCount = doc.getNumberOfPages()
     for(let i = 1; i <= pageCount; i++) {
         doc.setPage(i)
-        doc.setFontSize(8)
-        doc.setTextColor(150)
-        doc.text('Généré par Startech Vision AI - Document Confidentiel', 105, 290, { align: 'center' })
+        doc.setFontSize(8); doc.setTextColor(150)
+        doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI - Confidentiel`, 105, 290, { align: 'center' })
     }
 
-    doc.save(`Rapport_PDF_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
+    doc.save(`Rapport_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
   }
 
-  // --- VUE LOGIN ---
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -257,7 +243,6 @@ export default function AdminDashboard() {
     )
   }
 
-  // --- VUE DASHBOARD ---
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
@@ -272,9 +257,7 @@ export default function AdminDashboard() {
           <Button onClick={handleLogout} variant="destructive" size="icon"><LogOut className="w-4 h-4" /></Button>
         </div>
       </header>
-
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* SIDEBAR */}
         <div className="lg:col-span-3 space-y-4">
           <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
             <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50 p-4">
@@ -315,8 +298,6 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
-
-        {/* MAIN CONTENT */}
         <div className="lg:col-span-9 space-y-6">
           {selectedSession ? (
             <>
@@ -325,11 +306,8 @@ export default function AdminDashboard() {
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Implication Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
-
               <Card className="border-slate-200 shadow-sm bg-white">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle></CardHeader>
                 <CardContent className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={measurements} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
@@ -347,14 +325,11 @@ export default function AdminDashboard() {
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
-
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
                     <div className="flex gap-2">
-                        {/* BOUTON PDF ROUGE */}
                         <Button size="sm" onClick={handleExportPDF} className="bg-red-600 hover:bg-red-700 text-white gap-2 shadow-lg"><FileText className="w-4 h-4"/> Export PDF</Button>
-                        {/* BOUTON CSV VERT */}
                         <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-lg"><Download className="w-4 h-4"/> Export CSV</Button>
                     </div>
                 </CardHeader>
