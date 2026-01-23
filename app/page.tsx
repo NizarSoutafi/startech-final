@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Play, Square, RotateCcw, Zap, User, Fingerprint, Shield, Target } from "lucide-react"
+import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
-// --- SEULE MODIFICATION : L'ADRESSE INTELLIGENTE ---
-// C'est indispensable pour que ça marche sur Vercel ET sur votre PC.
-// Tout le reste du code est 100% identique à votre version originale.
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+// --- CORRECTION : ADRESSE EN DUR (POUR ÉLIMINER LE DOUTE) ---
+// On pointe directement vers votre serveur Hugging Face
+const API_URL = "https://persee-tech-startech-api.hf.space"
 
 interface MetricData { timestamp: number; value: number; engagement: number; satisfaction: number; trust: number; }
 interface UserInfo { firstName: string; lastName: string; clientId: string }
@@ -37,9 +36,16 @@ export default function Dashboard() {
   // 1. Démarrer Webcam Locale
   useEffect(() => {
     if (userInfo && !cameraActive) {
+      console.log("📸 Tentative démarrage Webcam...")
       navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
-        .then(stream => { if (videoRef.current) { videoRef.current.srcObject = stream; setCameraActive(true) } })
-        .catch(err => console.error("Erreur Webcam:", err))
+        .then(stream => { 
+            if (videoRef.current) { 
+                videoRef.current.srcObject = stream; 
+                setCameraActive(true) 
+                console.log("📸 Webcam active !")
+            } 
+        })
+        .catch(err => console.error("❌ ERREUR WEBCAM:", err))
     }
   }, [userInfo, cameraActive])
 
@@ -47,16 +53,32 @@ export default function Dashboard() {
   useEffect(() => {
     if (!userInfo) return;
     
-    // Modification ici : On utilise API_URL au lieu de "http://localhost:8000" en dur
+    console.log("🔗 Tentative connexion Socket vers:", API_URL)
+    
     const newSocket = io(API_URL, {
-        transports: ["websocket", "polling"]
+        transports: ["websocket", "polling"], // Force la compatibilité
+        path: "/socket.io/",
+        secure: true,
     })
     
-    newSocket.on("connect", () => setIsConnected(true))
-    newSocket.on("disconnect", () => setIsConnected(false))
+    newSocket.on("connect", () => {
+        console.log("✅ SOCKET CONNECTÉ ! ID:", newSocket.id)
+        setIsConnected(true)
+    })
+    
+    newSocket.on("connect_error", (err) => {
+        console.error("❌ ERREUR CONNEXION SOCKET:", err.message)
+    })
+
+    newSocket.on("disconnect", () => {
+        console.log("⚠️ Socket déconnecté")
+        setIsConnected(false)
+    })
     
     newSocket.on("metrics_update", (data: any) => {
-      setSessionTime(data.session_time); setIsRecording(data.is_recording)
+      // console.log("📥 Données reçues du serveur") // Décommenter pour debug
+      setSessionTime(data.session_time); 
+      setIsRecording(data.is_recording)
       setFaceCoords(data.face_coords)
       
       const newMetrics = { 
@@ -81,8 +103,11 @@ export default function Dashboard() {
         if (videoRef.current && canvasRef.current && newSocket.connected) {
             const ctx = canvasRef.current.getContext('2d')
             if (ctx) {
+                // On dessine l'image de la vidéo sur le canvas invisible
                 ctx.drawImage(videoRef.current, 0, 0, 480, 360)
+                // On transforme l'image en texte (base64)
                 const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.5)
+                // On envoie au serveur
                 newSocket.emit('process_frame', dataUrl)
             }
         }
@@ -92,7 +117,22 @@ export default function Dashboard() {
   }, [userInfo])
 
   const handleLogin = (e: React.FormEvent) => { e.preventDefault(); if (formData.firstName && formData.lastName) setUserInfo(formData) }
-  const handleStartStop = () => { if (socket && userInfo) { isRecording ? socket.emit("stop_session") : (sessionTime === 0 && setHistory([]), socket.emit("start_session", userInfo)) } }
+  
+  const handleStartStop = () => { 
+      if (socket && userInfo) { 
+          console.log("🖱️ Clic bouton Démarrer/Stop")
+          if (isRecording) {
+              socket.emit("stop_session")
+          } else {
+              setSessionTime(0)
+              setHistory([])
+              socket.emit("start_session", userInfo)
+          }
+      } else {
+          console.error("⛔ Impossible de démarrer : Socket ou UserInfo manquant")
+      }
+  }
+
   const handleReset = () => { if (socket) socket.emit("stop_session"); setHistory([]); setSessionTime(0); setCurrentMetrics(prev => ({ ...prev, engagement: 0, emotion: "neutral" })) }
   const handleLogout = () => { setUserInfo(null); setHistory([]); setSessionTime(0); setCameraActive(false); if(socket) socket.disconnect() }
   const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`
