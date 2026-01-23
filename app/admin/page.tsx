@@ -4,9 +4,8 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Fingerprint, Activity, BarChart3 } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download } from "lucide-react"
 import Link from "next/link"
-// On importe les graphiques (assurez-vous d'avoir recharts installé)
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 
 // --- CONFIGURATION API ---
@@ -19,7 +18,6 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(false)
   const [loadingDetails, setLoadingDetails] = useState(false)
 
-  // 1. Charger la liste
   useEffect(() => { fetchSessions() }, [])
 
   const fetchSessions = async () => {
@@ -31,7 +29,6 @@ export default function AdminDashboard() {
     } catch (e) { console.error(e) } finally { setIsLoading(false) }
   }
 
-  // 2. Charger détails
   const handleSelectSession = async (sessionId: number) => {
     setLoadingDetails(true)
     setSelectedSession(null)
@@ -43,7 +40,6 @@ export default function AdminDashboard() {
     } catch (e) { console.error(e) } finally { setLoadingDetails(false) }
   }
 
-  // 3. Supprimer
   const handleDelete = async (e: React.MouseEvent, sessionId: number) => {
     e.stopPropagation()
     if (!confirm("Supprimer définitivement ?")) return
@@ -54,23 +50,53 @@ export default function AdminDashboard() {
     } catch (e) { alert("Erreur suppression") }
   }
 
+  // --- FONCTION EXPORT CSV ---
+  const handleExportCSV = () => {
+    if (!measurements.length || !selectedSession) return
+    
+    // En-têtes du CSV
+    let csvContent = "data:text/csv;charset=utf-8," 
+    csvContent += "Temps (s),Emotion,Score IA,Engagement,Satisfaction,Confiance,Fidelite,Avis Global\n"
+
+    // Lignes de données
+    measurements.forEach((m) => {
+        const row = [
+            m.session_time,
+            m.emotion,
+            m.emotion_score,
+            m.engagement_val,
+            m.satisfaction_val,
+            m.trust_val,
+            m.loyalty_val, // Fidélité
+            m.opinion_val  // Avis
+        ].join(",")
+        csvContent += row + "\n"
+    })
+
+    // Téléchargement
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement("a")
+    link.setAttribute("href", encodedUri)
+    link.setAttribute("download", `SESSION_${selectedSession.last_name}_${selectedSession.client_id}.csv`)
+    document.body.appendChild(link)
+    link.click()
+  }
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
-  // Calcul des moyennes pour les cartes du haut
   const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
   const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
-      {/* HEADER */}
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             STARTECH <span className="text-green-600">ADMIN</span>
           </h1>
-          <p className="text-slate-500">Analyse comportementale & Biométrie</p>
+          <p className="text-slate-500">Supervision & Export des Données</p>
         </div>
         <div className="flex gap-4">
           <Link href="/"><Button variant="outline" className="gap-2"><ArrowLeft className="w-4 h-4" /> Retour Dashboard</Button></Link>
@@ -79,14 +105,10 @@ export default function AdminDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* SIDEBAR LISTE */}
         <div className="lg:col-span-3 space-y-4">
           <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
             <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50">
-              <CardTitle className="text-sm uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2">
-                <Clock className="w-4 h-4" /> Sessions ({sessions.length})
-              </CardTitle>
+              <CardTitle className="text-sm uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2"><Clock className="w-4 h-4" /> Sessions ({sessions.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0 overflow-y-auto flex-1 custom-scrollbar">
               {isLoading ? <div className="p-8 text-center text-slate-400 text-xs">Chargement...</div> : (
@@ -109,106 +131,71 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
-        {/* MAIN CONTENT */}
         <div className="lg:col-span-9 space-y-6">
           {selectedSession ? (
             <>
-              {/* 1. CARTES RESUME */}
+              {/* CARTES KPI */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card className="bg-white border-slate-200 shadow-sm">
-                    <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée Session</CardTitle></CardHeader>
-                    <CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent>
-                </Card>
-                <Card className="bg-white border-slate-200 shadow-sm">
-                    <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Engagement Moyen</CardTitle></CardHeader>
-                    <CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent>
-                </Card>
-                <Card className="bg-white border-slate-200 shadow-sm">
-                    <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moyenne</CardTitle></CardHeader>
-                    <CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent>
-                </Card>
+                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
+                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Engagement</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
+                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
 
-              {/* 2. GRAPHIQUES (RESTITUTION) */}
+              {/* GRAPHIQUE */}
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle>
-                  <CardDescription>Évolution des KPIs émotionnels seconde par seconde</CardDescription>
+                  <CardDescription>Évolution des émotions</CardDescription>
                 </CardHeader>
                 <CardContent className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={measurements} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                       <defs>
-                        <linearGradient id="colorEng" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorSat" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                        </linearGradient>
+                        <linearGradient id="colorEng" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/><stop offset="95%" stopColor="#22c55e" stopOpacity={0}/></linearGradient>
+                        <linearGradient id="colorSat" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient>
                       </defs>
                       <XAxis dataKey="session_time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
                       <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                        itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
-                      />
+                      <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px' }} />
                       <Area type="monotone" dataKey="engagement_val" name="Engagement" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
                       <Area type="monotone" dataKey="satisfaction_val" name="Satisfaction" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSat)" />
-                      <ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="3 3" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
 
-              {/* 3. TABLEAU DE DONNÉES (CORRIGÉ) */}
+              {/* TABLEAU COMPLET AVEC FIDÉLITÉ & AVIS */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-                <CardHeader className="border-b border-slate-100 bg-slate-50/50">
-                    <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Brutes</CardTitle>
+                <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
+                    <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
+                    <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2"><Download className="w-4 h-4"/> Export CSV</Button>
                 </CardHeader>
                 <div className="overflow-x-auto max-h-[400px]">
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
                       <tr>
-                        <th className="px-6 py-3 font-bold">Temps</th>
-                        <th className="px-6 py-3 font-bold">Émotion</th>
-                        <th className="px-6 py-3 font-bold text-center">Score IA</th>
-                        <th className="px-6 py-3 font-bold">Engagement</th>
-                        <th className="px-6 py-3 font-bold">Satisfaction</th>
-                        <th className="px-6 py-3 font-bold">Confiance</th>
+                        <th className="px-4 py-3 font-bold">Temps</th>
+                        <th className="px-4 py-3 font-bold">Émotion</th>
+                        <th className="px-4 py-3 font-bold text-center">Score IA</th>
+                        <th className="px-4 py-3 font-bold">Engagement</th>
+                        <th className="px-4 py-3 font-bold">Satisfaction</th>
+                        <th className="px-4 py-3 font-bold">Confiance</th>
+                        <th className="px-4 py-3 font-bold bg-green-50/50">Fidélité</th>
+                        <th className="px-4 py-3 font-bold bg-blue-50/50">Avis</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {measurements.map((m, i) => (
                         <tr key={i} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
-                          <td className="px-6 py-3">
-                            <Badge variant="outline" className={`
-                              ${m.emotion === 'happy' ? 'bg-green-100 text-green-800 border-green-200' : 
-                                m.emotion === 'sad' || m.emotion === 'angry' || m.emotion === 'fear' ? 'bg-red-100 text-red-800 border-red-200' : 
-                                'bg-slate-100 text-slate-800 border-slate-200'}
-                            `}>
-                              {m.emotion?.toUpperCase() || "N/A"}
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-3 text-center text-slate-500">
-                            {m.emotion_score ? Math.round(m.emotion_score * 10) / 10 + '%' : '-'}
-                          </td>
-                          <td className="px-6 py-3">
-                            <div className="flex flex-col">
-                                <span className="font-bold text-slate-900">{Math.round(m.engagement_val)}%</span>
-                                <span className="text-[10px] text-slate-400 truncate max-w-[100px]">{m.engagement_lbl}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-3">
-                            <div className="flex flex-col">
-                                <span className="font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</span>
-                                <span className="text-[10px] text-slate-400 truncate max-w-[100px]">{m.satisfaction_lbl}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-3 font-bold text-slate-700">{Math.round(m.trust_val)}%</td>
+                          <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
+                          <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
+                          <td className="px-4 py-3 text-center text-slate-500">{m.emotion_score ? Math.round(m.emotion_score * 10) / 10 + '%' : '-'}</td>
+                          <td className="px-4 py-3"><div className="flex flex-col"><span className="font-bold">{Math.round(m.engagement_val)}%</span><span className="text-[10px] text-slate-400">{m.engagement_lbl}</span></div></td>
+                          <td className="px-4 py-3"><div className="flex flex-col"><span className="font-bold">{Math.round(m.satisfaction_val)}%</span><span className="text-[10px] text-slate-400">{m.satisfaction_lbl}</span></div></td>
+                          <td className="px-4 py-3 font-bold text-slate-700">{Math.round(m.trust_val)}%</td>
+                          <td className="px-4 py-3 font-bold text-green-700 bg-green-50/30">{Math.round(m.loyalty_val)}%</td>
+                          <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30">{Math.round(m.opinion_val)}%</td>
                         </tr>
                       ))}
                     </tbody>
