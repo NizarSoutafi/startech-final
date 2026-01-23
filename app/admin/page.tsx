@@ -1,16 +1,34 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { createClient } from "@supabase/supabase-js"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download, CheckSquare, Square, X } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
+// --- CONFIGURATION ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
+// ⚠️ Configuration Supabase (Utilisez vos clés publiques ici si elles ne sont pas dans .env)
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://gwjrwejdjpctizolfkcz.supabase.co"
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3anJ3ZWpkanBjdGl6b2xma2N6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTA5ODEyNCwiZXhwIjoyMDg0Njc0MTI0fQ.EjU1DGTN-jrdkaC6nJWilFtYZgtu-NKjnfiMVMnHal0"
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
 export default function AdminDashboard() {
+  // --- STATES AUTH ---
+  const [session, setSession] = useState<any>(null)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [authError, setAuthError] = useState("")
+  const [authLoading, setAuthLoading] = useState(false)
+
+  // --- STATES DASHBOARD ---
   const [sessions, setSessions] = useState<any[]>([])
   const [selectedSession, setSelectedSession] = useState<any | null>(null)
   const [measurements, setMeasurements] = useState<any[]>([])
@@ -19,8 +37,50 @@ export default function AdminDashboard() {
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
-  useEffect(() => { fetchSessions() }, [])
+  // 1. Vérifier la session au chargement
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      if (session) fetchSessions()
+    })
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+      if (session) fetchSessions()
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // --- LOGIQUE AUTHENTIFICATION ---
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAuthLoading(true)
+    setAuthError("")
+    
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (error) {
+      setAuthError("Email ou mot de passe incorrect.")
+    } else {
+      // Login réussi, le useEffect va déclencher fetchSessions
+    }
+    setAuthLoading(false)
+  }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setSession(null)
+    setSessions([])
+    setSelectedSession(null)
+  }
+
+  // --- LOGIQUE DASHBOARD (IDENTIQUE À AVANT) ---
   const fetchSessions = async () => {
     setIsLoading(true)
     try {
@@ -77,34 +137,20 @@ export default function AdminDashboard() {
 
   const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
 
-  // --- EXPORT CSV (TITRES COMPLETS) ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    
-    // Titres complets sans abréviations
     csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Implication Client${separator}Label Implication${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis Global\n`
-
     measurements.forEach((m) => {
         const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
         const avis = getAvisLabel(m.opinion_val)
-
         const row = [
-            m.session_time,
-            m.emotion,
-            score,
-            Math.round(m.engagement_val),
-            m.engagement_lbl,
-            Math.round(m.satisfaction_val),
-            m.satisfaction_lbl,
-            Math.round(m.trust_val),
-            Math.round(m.loyalty_val),
-            avis
+            m.session_time, m.emotion, score, Math.round(m.engagement_val), m.engagement_lbl,
+            Math.round(m.satisfaction_val), m.satisfaction_lbl, Math.round(m.trust_val), Math.round(m.loyalty_val), avis
         ].join(separator)
         csvContent += row + "\n"
     })
-
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a")
     link.setAttribute("href", encodedUri)
@@ -122,6 +168,48 @@ export default function AdminDashboard() {
   const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
   const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
 
+  // --- VUE LOGIN (SI PAS CONNECTÉ) ---
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 via-slate-50 to-white opacity-80"></div>
+         <Card className="w-full max-w-sm relative z-10 shadow-xl border-slate-200">
+            <CardHeader className="text-center space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center shadow-lg">
+                    <Lock className="w-8 h-8 text-green-500" />
+                </div>
+                <div>
+                    <CardTitle className="text-2xl font-bold text-slate-900">Admin Login</CardTitle>
+                    <CardDescription>Accès sécurisé Supabase</CardDescription>
+                </div>
+            </CardHeader>
+            <form onSubmit={handleLogin}>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input id="email" type="email" placeholder="admin@startech.com" value={email} onChange={e => setEmail(e.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="password">Mot de passe</Label>
+                        <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+                    </div>
+                    {authError && <div className="text-sm text-red-500 font-medium text-center bg-red-50 p-2 rounded">{authError}</div>}
+                </CardContent>
+                <CardFooter>
+                    <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={authLoading}>
+                        {authLoading ? "Connexion..." : "Se connecter"}
+                    </Button>
+                </CardFooter>
+            </form>
+            <div className="p-4 text-center">
+                <Link href="/"><Button variant="link" className="text-slate-400 btn-sm h-auto p-0">← Retour Site</Button></Link>
+            </div>
+         </Card>
+      </div>
+    )
+  }
+
+  // --- VUE DASHBOARD (SI CONNECTÉ) ---
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
@@ -129,9 +217,11 @@ export default function AdminDashboard() {
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">STARTECH <span className="text-green-600">ADMIN</span></h1>
           <p className="text-slate-500">Supervision & Gestion de Masse</p>
         </div>
-        <div className="flex gap-4">
-          <Link href="/"><Button variant="outline" className="gap-2"><ArrowLeft className="w-4 h-4" /> Retour Dashboard</Button></Link>
+        <div className="flex gap-4 items-center">
+          <span className="text-xs font-mono text-slate-400 mr-2 hidden md:inline">{session.user.email}</span>
+          <Link href="/"><Button variant="outline" className="gap-2"><ArrowLeft className="w-4 h-4" /> Dashboard</Button></Link>
           <Button onClick={fetchSessions} className="bg-slate-900 text-white hover:bg-slate-800 gap-2"><RefreshCcw className="w-4 h-4" /> Actualiser</Button>
+          <Button onClick={handleLogout} variant="destructive" size="icon"><LogOut className="w-4 h-4" /></Button>
         </div>
       </header>
 
@@ -184,14 +274,12 @@ export default function AdminDashboard() {
         <div className="lg:col-span-9 space-y-6">
           {selectedSession ? (
             <>
-              {/* KPIs */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Implication Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
 
-              {/* GRAPHIQUE */}
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle>
@@ -214,7 +302,6 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
 
-              {/* TABLEAU AVEC NOMS COMPLETS */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
@@ -224,7 +311,6 @@ export default function AdminDashboard() {
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
                       <tr>
-                        {/* Noms complets demandés */}
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Temps</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
@@ -243,13 +329,10 @@ export default function AdminDashboard() {
                           <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
                           <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
                           <td className="px-4 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
-                          
                           <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.engagement_lbl}</td>
-                          
                           <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.satisfaction_lbl}</td>
-                          
                           <td className="px-4 py-3 font-bold text-slate-700">{Math.round(m.trust_val)}%</td>
                           <td className="px-4 py-3 font-bold text-green-700 bg-green-50/30">{Math.round(m.loyalty_val)}%</td>
                           <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
