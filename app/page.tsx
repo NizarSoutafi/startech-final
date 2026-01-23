@@ -11,9 +11,6 @@ import { Play, Square, RotateCcw, Zap, User, Fingerprint, Shield, Target } from 
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
-// --- CORRECTION ICI : ON UTILISE L'ADRESSE DU CLOUD ---
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-
 interface MetricData { timestamp: number; value: number; engagement: number; satisfaction: number; trust: number; }
 interface UserInfo { firstName: string; lastName: string; clientId: string }
 
@@ -44,10 +41,7 @@ export default function Dashboard() {
   // 2. Logique Socket & Envoi d'images
   useEffect(() => {
     if (!userInfo) return;
-    
-    // --- CORRECTION ICI : CONNEXION AU CLOUD ---
-    const newSocket = io(API_URL, { transports: ["websocket", "polling"] })
-    
+    const newSocket = io("http://localhost:8000")
     newSocket.on("connect", () => setIsConnected(true))
     newSocket.on("disconnect", () => setIsConnected(false))
     
