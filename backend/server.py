@@ -23,10 +23,11 @@ except Exception as e:
     print(f"❌ Erreur connexion Supabase : {e}")
 
 # --- CONFIGURATION SERVEUR & SÉCURITÉ (CORS) ---
-# C'EST ICI LA CORRECTION CRITIQUE :
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')  # <--- INDISPENSABLE
+# C'EST ICI LA CORRECTION CRITIQUE (LIGNE 25) :
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 
 app = FastAPI()
+# Middleware pour autoriser les requêtes API REST classiques
 app.add_middleware(
     CORSMiddleware, 
     allow_origins=["*"], 
@@ -57,7 +58,7 @@ def delete_session(session_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- LOGIQUE MÉTIER ---
+# --- LOGIQUE MÉTIER (DeepFace + KPIs) ---
 def calculate_kpis(emotion):
     valence = 0.0; arousal = 0.0; noise = random.uniform(-0.05, 0.05)
     if emotion == "happy": valence = 0.8 + noise; arousal = 0.6 + noise
@@ -99,6 +100,7 @@ async def process_frame(sid, data_uri):
         nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
+        # Analyse DeepFace
         result = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False, silent=True)
         data = result[0] if isinstance(result, list) else result
         
@@ -140,7 +142,7 @@ async def session_manager_loop():
                 "session_time": user_data["session_time"], 
                 "is_recording": user_data["is_recording"]
             }, room=sid)
-        await asyncio.sleep(1)
+        await asyncio.sleep(1) # Mise à jour chaque seconde
 
 @sio.event
 async def connect(sid, environ): 
