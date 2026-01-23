@@ -8,7 +8,6 @@ import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Downlo
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-// --- CONFIGURATION API ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function AdminDashboard() {
@@ -17,8 +16,6 @@ export default function AdminDashboard() {
   const [measurements, setMeasurements] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [loadingDetails, setLoadingDetails] = useState(false)
-  
-  // Gestion sélection multiple
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
@@ -78,20 +75,18 @@ export default function AdminDashboard() {
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  // --- FONCTION HELPERS ---
   const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
 
-  // --- EXPORT CSV STRICTEMENT IDENTIQUE AU MODELE ---
+  // --- EXPORT CSV MISE À JOUR ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
     
-    // En-têtes exacts du fichier modèle
-    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Engagement${separator}Label Engagement${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis\n`
+    // En-têtes mis à jour avec "Implication Client"
+    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Implication Client${separator}Label Implication${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis\n`
 
     measurements.forEach((m) => {
-        // Formatage Score IA avec virgule (ex: 97,60)
         const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
         const avis = getAvisLabel(m.opinion_val)
 
@@ -189,10 +184,10 @@ export default function AdminDashboard() {
         <div className="lg:col-span-9 space-y-6">
           {selectedSession ? (
             <>
-              {/* KPIs */}
+              {/* KPIs (Labels Mis à Jour) */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
-                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Engagement Moyen</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
+                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Implication Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
 
@@ -212,14 +207,14 @@ export default function AdminDashboard() {
                       <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px' }} />
-                      <Area type="monotone" dataKey="engagement_val" name="Engagement" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
+                      <Area type="monotone" dataKey="engagement_val" name="Implication Client" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
                       <Area type="monotone" dataKey="satisfaction_val" name="Satisfaction" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSat)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
 
-              {/* TABLEAU EXACT */}
+              {/* TABLEAU CORRIGÉ (TITRES ENTIERS & IMPLICATION) */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
@@ -229,31 +224,34 @@ export default function AdminDashboard() {
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
                       <tr>
-                        <th className="px-3 py-3 font-bold">Temps</th>
-                        <th className="px-3 py-3 font-bold">Emotion</th>
-                        <th className="px-3 py-3 font-bold">Score IA</th>
-                        <th className="px-3 py-3 font-bold">Eng.</th>
-                        <th className="px-3 py-3 font-bold">Label Eng.</th>
-                        <th className="px-3 py-3 font-bold">Sat.</th>
-                        <th className="px-3 py-3 font-bold">Label Sat.</th>
-                        <th className="px-3 py-3 font-bold">Conf.</th>
-                        <th className="px-3 py-3 font-bold bg-green-50/50">Fidélité</th>
-                        <th className="px-3 py-3 font-bold bg-blue-50/50">Avis</th>
+                        {/* whitespace-nowrap force l'affichage sur une ligne */}
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Temps</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Implication Client</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Impl.</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Sat.</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Sat.</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Conf.</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-green-50/50">Fidélité</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {measurements.map((m, i) => (
                         <tr key={i} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-3 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
-                          <td className="px-3 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
-                          <td className="px-3 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
-                          <td className="px-3 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
-                          <td className="px-3 py-3 text-xs text-slate-500">{m.engagement_lbl}</td>
-                          <td className="px-3 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
-                          <td className="px-3 py-3 text-xs text-slate-500">{m.satisfaction_lbl}</td>
-                          <td className="px-3 py-3 font-bold text-slate-700">{Math.round(m.trust_val)}%</td>
-                          <td className="px-3 py-3 font-bold text-green-700 bg-green-50/30">{Math.round(m.loyalty_val)}%</td>
-                          <td className="px-3 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
+                          <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
+                          <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
+                          <td className="px-4 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
+                          {/* Colonne Implication Client */}
+                          <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.engagement_lbl}</td>
+                          
+                          <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.satisfaction_lbl}</td>
+                          <td className="px-4 py-3 font-bold text-slate-700">{Math.round(m.trust_val)}%</td>
+                          <td className="px-4 py-3 font-bold text-green-700 bg-green-50/30">{Math.round(m.loyalty_val)}%</td>
+                          <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
                         </tr>
                       ))}
                     </tbody>
