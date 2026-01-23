@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download, CheckSquare, Square, X } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 
@@ -17,6 +17,10 @@ export default function AdminDashboard() {
   const [measurements, setMeasurements] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [loadingDetails, setLoadingDetails] = useState(false)
+  
+  // --- NOUVEAU : GESTION SÉLECTION MULTIPLE ---
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
   useEffect(() => { fetchSessions() }, [])
 
@@ -26,6 +30,7 @@ export default function AdminDashboard() {
       const res = await fetch(`${API_URL}/api/sessions`)
       const data = await res.json()
       setSessions(data || [])
+      setSelectedIds([]) // On remet à zéro la sélection après actualisation
     } catch (e) { console.error(e) } finally { setIsLoading(false) }
   }
 
@@ -40,53 +45,84 @@ export default function AdminDashboard() {
     } catch (e) { console.error(e) } finally { setLoadingDetails(false) }
   }
 
+  // Suppression Unitaire
   const handleDelete = async (e: React.MouseEvent, sessionId: number) => {
     e.stopPropagation()
     if (!confirm("Supprimer définitivement ?")) return
     try {
       await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: 'DELETE' })
       setSessions(prev => prev.filter(s => s.id !== sessionId))
+      setSelectedIds(prev => prev.filter(id => id !== sessionId)) // On retire de la sélection si présent
       if (selectedSession?.id === sessionId) { setSelectedSession(null); setMeasurements([]) }
     } catch (e) { alert("Erreur suppression") }
   }
 
-  // --- CORRECTION EXPORT CSV (FORMAT EXCEL) ---
+  // --- NOUVEAU : LOGIQUE DE SÉLECTION ---
+  const toggleSelection = (e: React.MouseEvent, id: number) => {
+      e.stopPropagation()
+      if (selectedIds.includes(id)) {
+          setSelectedIds(prev => prev.filter(item => item !== id))
+      } else {
+          setSelectedIds(prev => [...prev, id])
+      }
+  }
+
+  const selectAll = () => {
+      if (selectedIds.length === sessions.length) {
+          setSelectedIds([]) // Tout décocher
+      } else {
+          setSelectedIds(sessions.map(s => s.id)) // Tout cocher
+      }
+  }
+
+  // --- NOUVEAU : SUPPRESSION DE MASSE ---
+  const handleBulkDelete = async () => {
+      if (!confirm(`Voulez-vous vraiment supprimer ces ${selectedIds.length} sessions ? Cette action est irréversible.`)) return
+      
+      setIsBulkDeleting(true)
+      try {
+          // On envoie toutes les requêtes de suppression en parallèle
+          await Promise.all(selectedIds.map(id => 
+              fetch(`${API_URL}/api/sessions/${id}`, { method: 'DELETE' })
+          ))
+          
+          // Mise à jour de l'interface
+          setSessions(prev => prev.filter(s => !selectedIds.includes(s.id)))
+          
+          // Si la session active faisait partie de la suppression, on la ferme
+          if (selectedSession && selectedIds.includes(selectedSession.id)) {
+              setSelectedSession(null)
+              setMeasurements([])
+          }
+          
+          setSelectedIds([]) // Reset sélection
+      } catch (e) {
+          alert("Erreur lors de la suppression de masse")
+      } finally {
+          setIsBulkDeleting(false)
+      }
+  }
+
+  // --- EXPORT CSV (Code Excel-FR compatible) ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
-    
-    // 1. On utilise le point-virgule (;) qui est le standard Excel en France/Maroc
     const separator = ";"
-    
-    // 2. On ajoute le "BOM" (\uFEFF) pour que Excel comprenne que c'est du texte (UTF-8) et affiche bien les accents
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    
-    // 3. En-têtes
     csvContent += `Temps (s)${separator}Emotion${separator}Score IA${separator}Engagement${separator}Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis Global\n`
 
-    // 4. Données
     measurements.forEach((m) => {
-        // On remplace les points décimaux par des virgules pour les chiffres (Excel FR aime les virgules)
         const score = m.emotion_score ? m.emotion_score.toString().replace('.', ',') : '0'
-        
         const row = [
-            m.session_time,
-            m.emotion,
-            score,
-            Math.round(m.engagement_val),
-            Math.round(m.satisfaction_val),
-            Math.round(m.trust_val),
-            Math.round(m.loyalty_val),
-            Math.round(m.opinion_val)
+            m.session_time, m.emotion, score,
+            Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(m.trust_val),
+            Math.round(m.loyalty_val), Math.round(m.opinion_val)
         ].join(separator)
-        
         csvContent += row + "\n"
     })
 
-    // 5. Téléchargement
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a")
     link.setAttribute("href", encodedUri)
-    // Nom du fichier propre
     const filename = `Rapport_${selectedSession.first_name}_${selectedSession.last_name}_${new Date().toISOString().slice(0,10)}.csv`
     link.setAttribute("download", filename)
     document.body.appendChild(link)
@@ -108,7 +144,7 @@ export default function AdminDashboard() {
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             STARTECH <span className="text-green-600">ADMIN</span>
           </h1>
-          <p className="text-slate-500">Supervision & Export des Données</p>
+          <p className="text-slate-500">Supervision & Gestion de Masse</p>
         </div>
         <div className="flex gap-4">
           <Link href="/"><Button variant="outline" className="gap-2"><ArrowLeft className="w-4 h-4" /> Retour Dashboard</Button></Link>
@@ -117,23 +153,43 @@ export default function AdminDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* SIDEBAR LISTE */}
         <div className="lg:col-span-3 space-y-4">
           <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
-            <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50">
-              <CardTitle className="text-sm uppercase tracking-wider text-slate-500 font-bold flex items-center gap-2"><Clock className="w-4 h-4" /> Sessions ({sessions.length})</CardTitle>
+            <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50 p-4">
+              <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={selectAll}>
+                          {selectedIds.length === sessions.length && sessions.length > 0 ? <CheckSquare className="w-4 h-4 text-green-600"/> : <Square className="w-4 h-4 text-slate-400"/>}
+                      </Button>
+                      <span className="text-xs font-bold text-slate-500 uppercase">{selectedIds.length} Sél.</span>
+                  </div>
+                  {selectedIds.length > 0 && (
+                      <Button size="sm" variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting} className="h-7 text-xs px-2">
+                          {isBulkDeleting ? "..." : <Trash2 className="w-3 h-3" />}
+                      </Button>
+                  )}
+              </div>
             </CardHeader>
             <CardContent className="p-0 overflow-y-auto flex-1 custom-scrollbar">
               {isLoading ? <div className="p-8 text-center text-slate-400 text-xs">Chargement...</div> : (
                 <div className="divide-y divide-slate-100">
                   {sessions.map((session) => (
-                    <div key={session.id} onClick={() => handleSelectSession(session.id)} className={`p-4 cursor-pointer hover:bg-green-50/50 transition-all group ${selectedSession?.id === session.id ? "bg-green-50 border-l-4 border-green-500" : "border-l-4 border-transparent"}`}>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-bold text-slate-900 text-sm">{session.first_name} {session.last_name}</span>
-                        <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleDelete(e, session.id)}><Trash2 className="w-3 h-3" /></Button>
+                    <div key={session.id} onClick={() => handleSelectSession(session.id)} className={`p-4 cursor-pointer hover:bg-green-50/50 transition-all group relative ${selectedSession?.id === session.id ? "bg-green-50 border-l-4 border-green-500" : "border-l-4 border-transparent"}`}>
+                      {/* Checkbox de sélection */}
+                      <div className="absolute left-2 top-4 z-10" onClick={(e) => toggleSelection(e, session.id)}>
+                          {selectedIds.includes(session.id) ? <CheckSquare className="w-4 h-4 text-green-600 fill-green-100"/> : <Square className="w-4 h-4 text-slate-300 hover:text-slate-500"/>}
                       </div>
-                      <div className="text-[10px] text-slate-500 flex justify-between">
-                        <span>{formatDate(session.created_at)}</span>
-                        <Badge variant="secondary" className="text-[10px] py-0 h-4">{session.client_id}</Badge>
+                      
+                      <div className="pl-6">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="font-bold text-slate-900 text-sm truncate w-24">{session.first_name} {session.last_name}</span>
+                            <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleDelete(e, session.id)}><X className="w-3 h-3" /></Button>
+                          </div>
+                          <div className="text-[10px] text-slate-500 flex justify-between items-center">
+                            <span>{formatDate(session.created_at)}</span>
+                            <Badge variant="secondary" className="text-[9px] py-0 h-4 px-1">{session.client_id}</Badge>
+                          </div>
                       </div>
                     </div>
                   ))}
@@ -143,17 +199,16 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
+        {/* MAIN CONTENT (UNCHANGED) */}
         <div className="lg:col-span-9 space-y-6">
           {selectedSession ? (
             <>
-              {/* CARTES KPI */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Engagement</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
 
-              {/* GRAPHIQUE */}
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle>
@@ -177,7 +232,6 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
 
-              {/* TABLEAU COMPLET */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
