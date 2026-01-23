@@ -11,10 +11,9 @@ import { Play, Square, RotateCcw, Zap, User, Fingerprint, Shield, Target } from 
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
-// --- C'EST ICI LA MODIFICATION IMPORTANTE ---
-// Le site choisira tout seul la bonne adresse :
-// 1. Sur Vercel : Il prendra la variable d'environnement (Hugging Face)
-// 2. Sur votre PC : Il prendra localhost:8000
+// --- SEULE MODIFICATION : L'ADRESSE INTELLIGENTE ---
+// C'est indispensable pour que ça marche sur Vercel ET sur votre PC.
+// Tout le reste du code est 100% identique à votre version originale.
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 interface MetricData { timestamp: number; value: number; engagement: number; satisfaction: number; trust: number; }
@@ -48,22 +47,13 @@ export default function Dashboard() {
   useEffect(() => {
     if (!userInfo) return;
     
-    // CONNEXION AVEC L'ADRESSE INTELLIGENTE
-    console.log("Tentative de connexion vers :", API_URL)
-    
+    // Modification ici : On utilise API_URL au lieu de "http://localhost:8000" en dur
     const newSocket = io(API_URL, {
-        transports: ["websocket", "polling"] // On assure la compatibilité maximale
+        transports: ["websocket", "polling"]
     })
     
-    newSocket.on("connect", () => {
-        console.log("✅ Connecté au serveur !")
-        setIsConnected(true)
-    })
-    
-    newSocket.on("disconnect", () => {
-        console.log("❌ Déconnecté")
-        setIsConnected(false)
-    })
+    newSocket.on("connect", () => setIsConnected(true))
+    newSocket.on("disconnect", () => setIsConnected(false))
     
     newSocket.on("metrics_update", (data: any) => {
       setSessionTime(data.session_time); setIsRecording(data.is_recording)
@@ -86,7 +76,7 @@ export default function Dashboard() {
 
     setSocket(newSocket)
 
-    // Envoi 5 fois par seconde (Optimisé)
+    // Envoi 5 fois par seconde
     const interval = setInterval(() => {
         if (videoRef.current && canvasRef.current && newSocket.connected) {
             const ctx = canvasRef.current.getContext('2d')
