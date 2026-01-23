@@ -7,14 +7,17 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+// IMPORTS PDF
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 
 // --- CONFIGURATION ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-// ⚠️ Configuration Supabase (Utilisez vos clés publiques ici si elles ne sont pas dans .env)
+// ⚠️ Configuration Supabase
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://gwjrwejdjpctizolfkcz.supabase.co"
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3anJ3ZWpkanBjdGl6b2xma2N6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTA5ODEyNCwiZXhwIjoyMDg0Njc0MTI0fQ.EjU1DGTN-jrdkaC6nJWilFtYZgtu-NKjnfiMVMnHal0"
 
@@ -59,28 +62,17 @@ export default function AdminDashboard() {
     e.preventDefault()
     setAuthLoading(true)
     setAuthError("")
-    
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
-    if (error) {
-      setAuthError("Email ou mot de passe incorrect.")
-    } else {
-      // Login réussi, le useEffect va déclencher fetchSessions
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) setAuthError("Email ou mot de passe incorrect.")
     setAuthLoading(false)
   }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    setSession(null)
-    setSessions([])
-    setSelectedSession(null)
+    setSession(null); setSessions([]); setSelectedSession(null)
   }
 
-  // --- LOGIQUE DASHBOARD (IDENTIQUE À AVANT) ---
+  // --- LOGIQUE DASHBOARD ---
   const fetchSessions = async () => {
     setIsLoading(true)
     try {
@@ -135,8 +127,16 @@ export default function AdminDashboard() {
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
+  const getAvisLabel = (val: number) => val > 60 ? "Avis Positif" : (val < 40 ? "Avis Négatif" : "Avis Neutre")
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
+  const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
+
+  // --- EXPORT CSV ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
@@ -157,59 +157,107 @@ export default function AdminDashboard() {
     const filename = `Rapport_${selectedSession.first_name}_${selectedSession.last_name}.csv`
     link.setAttribute("download", filename)
     document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    link.click(); document.body.removeChild(link)
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  // --- EXPORT PDF PROFESSIONNEL ---
+  const handleExportPDF = () => {
+    if (!measurements.length || !selectedSession) return
+
+    const doc = new jsPDF()
+
+    // 1. En-tête / Logo
+    doc.setFillColor(34, 197, 94) // Vert Startech
+    doc.rect(0, 0, 210, 20, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(16)
+    doc.setFont("helvetica", "bold")
+    doc.text("STARTECH VISION - RAPPORT D'ANALYSE", 105, 13, { align: "center" })
+
+    // 2. Infos Client
+    doc.setTextColor(0, 0, 0)
+    doc.setFontSize(10)
+    doc.setFont("helvetica", "normal")
+    
+    doc.text(`Client : ${selectedSession.first_name} ${selectedSession.last_name}`, 14, 30)
+    doc.text(`ID Projet : ${selectedSession.client_id || "N/A"}`, 14, 36)
+    doc.text(`Date : ${formatDate(selectedSession.created_at)}`, 14, 42)
+    doc.text(`Durée : ${measurements.length} secondes`, 14, 48)
+
+    // 3. Résumé KPIs (Encadré)
+    doc.setFillColor(245, 245, 245)
+    doc.roundedRect(14, 55, 180, 20, 3, 3, 'F')
+    doc.setFontSize(11)
+    doc.setFont("helvetica", "bold")
+    doc.text("RÉSUMÉ DE LA SESSION", 105, 62, { align: "center" })
+    
+    doc.setFontSize(10)
+    doc.setFont("helvetica", "normal")
+    // Engagement
+    doc.text(`Implication Moy. : ${avgEngagement}%`, 30, 70)
+    // Satisfaction
+    doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 100, 70)
+    // Avis Global (Basé sur la dernière mesure)
+    const lastAvis = measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A"
+    doc.text(`Tendance : ${lastAvis}`, 160, 70)
+
+    // 4. Tableau de Données
+    const tableRows = measurements.map(m => [
+      m.session_time,
+      m.emotion?.toUpperCase(),
+      m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-',
+      m.engagement_lbl,
+      m.satisfaction_lbl,
+      getAvisLabel(m.opinion_val)
+    ])
+
+    autoTable(doc, {
+      head: [['T(s)', 'Emotion', 'Score', 'Implication', 'Satisfaction', 'Avis']],
+      body: tableRows,
+      startY: 85,
+      theme: 'grid',
+      headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 8, cellPadding: 2 },
+      alternateRowStyles: { fillColor: [240, 253, 244] } // Vert très clair alterné
+    })
+
+    // 5. Pied de page
+    const pageCount = doc.getNumberOfPages()
+    for(let i = 1; i <= pageCount; i++) {
+        doc.setPage(i)
+        doc.setFontSize(8)
+        doc.setTextColor(150)
+        doc.text('Généré par Startech Vision AI - Document Confidentiel', 105, 290, { align: 'center' })
+    }
+
+    doc.save(`Rapport_PDF_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
   }
 
-  const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
-  const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
-
-  // --- VUE LOGIN (SI PAS CONNECTÉ) ---
+  // --- VUE LOGIN ---
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 via-slate-50 to-white opacity-80"></div>
          <Card className="w-full max-w-sm relative z-10 shadow-xl border-slate-200">
             <CardHeader className="text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center shadow-lg">
-                    <Lock className="w-8 h-8 text-green-500" />
-                </div>
-                <div>
-                    <CardTitle className="text-2xl font-bold text-slate-900">Admin Login</CardTitle>
-                    <CardDescription>Accès sécurisé Supabase</CardDescription>
-                </div>
+                <div className="mx-auto w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center shadow-lg"><Lock className="w-8 h-8 text-green-500" /></div>
+                <div><CardTitle className="text-2xl font-bold text-slate-900">Admin Login</CardTitle><CardDescription>Accès sécurisé Supabase</CardDescription></div>
             </CardHeader>
             <form onSubmit={handleLogin}>
                 <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input id="email" type="email" placeholder="admin@startech.com" value={email} onChange={e => setEmail(e.target.value)} required />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="password">Mot de passe</Label>
-                        <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-                    </div>
+                    <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" placeholder="admin@startech.com" value={email} onChange={e => setEmail(e.target.value)} required /></div>
+                    <div className="space-y-2"><Label htmlFor="password">Mot de passe</Label><Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required /></div>
                     {authError && <div className="text-sm text-red-500 font-medium text-center bg-red-50 p-2 rounded">{authError}</div>}
                 </CardContent>
-                <CardFooter>
-                    <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={authLoading}>
-                        {authLoading ? "Connexion..." : "Se connecter"}
-                    </Button>
-                </CardFooter>
+                <CardFooter><Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={authLoading}>{authLoading ? "Connexion..." : "Se connecter"}</Button></CardFooter>
             </form>
-            <div className="p-4 text-center">
-                <Link href="/"><Button variant="link" className="text-slate-400 btn-sm h-auto p-0">← Retour Site</Button></Link>
-            </div>
+            <div className="p-4 text-center"><Link href="/"><Button variant="link" className="text-slate-400 btn-sm h-auto p-0">← Retour Site</Button></Link></div>
          </Card>
       </div>
     )
   }
 
-  // --- VUE DASHBOARD (SI CONNECTÉ) ---
+  // --- VUE DASHBOARD ---
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
@@ -238,9 +286,7 @@ export default function AdminDashboard() {
                       <span className="text-xs font-bold text-slate-500 uppercase">{selectedIds.length} Sél.</span>
                   </div>
                   {selectedIds.length > 0 && (
-                      <Button size="sm" variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting} className="h-7 text-xs px-2">
-                          {isBulkDeleting ? "..." : <Trash2 className="w-3 h-3" />}
-                      </Button>
+                      <Button size="sm" variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting} className="h-7 text-xs px-2">{isBulkDeleting ? "..." : <Trash2 className="w-3 h-3" />}</Button>
                   )}
               </div>
             </CardHeader>
@@ -305,7 +351,12 @@ export default function AdminDashboard() {
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
-                    <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-lg"><Download className="w-4 h-4"/> Export CSV</Button>
+                    <div className="flex gap-2">
+                        {/* BOUTON PDF ROUGE */}
+                        <Button size="sm" onClick={handleExportPDF} className="bg-red-600 hover:bg-red-700 text-white gap-2 shadow-lg"><FileText className="w-4 h-4"/> Export PDF</Button>
+                        {/* BOUTON CSV VERT */}
+                        <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-lg"><Download className="w-4 h-4"/> Export CSV</Button>
+                    </div>
                 </CardHeader>
                 <div className="overflow-x-auto max-h-[400px]">
                   <table className="w-full text-sm text-left">
