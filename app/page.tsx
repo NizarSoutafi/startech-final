@@ -11,8 +11,7 @@ import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target } from "lucid
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
-// --- CORRECTION : ADRESSE EN DUR (POUR ÉLIMINER LE DOUTE) ---
-// On pointe directement vers votre serveur Hugging Face
+// ADRESSE FIXE POUR EVITER TOUT PROBLEME DE CONNEXION
 const API_URL = "https://persee-tech-startech-api.hf.space"
 
 interface MetricData { timestamp: number; value: number; engagement: number; satisfaction: number; trust: number; }
@@ -36,48 +35,28 @@ export default function Dashboard() {
   // 1. Démarrer Webcam Locale
   useEffect(() => {
     if (userInfo && !cameraActive) {
-      console.log("📸 Tentative démarrage Webcam...")
       navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
-        .then(stream => { 
-            if (videoRef.current) { 
-                videoRef.current.srcObject = stream; 
-                setCameraActive(true) 
-                console.log("📸 Webcam active !")
-            } 
-        })
-        .catch(err => console.error("❌ ERREUR WEBCAM:", err))
+        .then(stream => { if (videoRef.current) { videoRef.current.srcObject = stream; setCameraActive(true) } })
+        .catch(err => console.error("Erreur Webcam:", err))
     }
   }, [userInfo, cameraActive])
 
-  // 2. Logique Socket & Envoi d'images
+  // 2. Logique Socket
   useEffect(() => {
     if (!userInfo) return;
     
-    console.log("🔗 Tentative connexion Socket vers:", API_URL)
-    
     const newSocket = io(API_URL, {
-        transports: ["websocket", "polling"], // Force la compatibilité
+        transports: ["websocket", "polling"],
         path: "/socket.io/",
         secure: true,
     })
     
-    newSocket.on("connect", () => {
-        console.log("✅ SOCKET CONNECTÉ ! ID:", newSocket.id)
-        setIsConnected(true)
-    })
-    
-    newSocket.on("connect_error", (err) => {
-        console.error("❌ ERREUR CONNEXION SOCKET:", err.message)
-    })
-
-    newSocket.on("disconnect", () => {
-        console.log("⚠️ Socket déconnecté")
-        setIsConnected(false)
-    })
+    newSocket.on("connect", () => setIsConnected(true))
+    newSocket.on("disconnect", () => setIsConnected(false))
     
     newSocket.on("metrics_update", (data: any) => {
-      // console.log("📥 Données reçues du serveur") // Décommenter pour debug
       setSessionTime(data.session_time); 
+      // On force la mise à jour de l'état recording ici aussi
       setIsRecording(data.is_recording)
       setFaceCoords(data.face_coords)
       
@@ -98,16 +77,12 @@ export default function Dashboard() {
 
     setSocket(newSocket)
 
-    // Envoi 5 fois par seconde
     const interval = setInterval(() => {
         if (videoRef.current && canvasRef.current && newSocket.connected) {
             const ctx = canvasRef.current.getContext('2d')
             if (ctx) {
-                // On dessine l'image de la vidéo sur le canvas invisible
                 ctx.drawImage(videoRef.current, 0, 0, 480, 360)
-                // On transforme l'image en texte (base64)
                 const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.5)
-                // On envoie au serveur
                 newSocket.emit('process_frame', dataUrl)
             }
         }
@@ -120,17 +95,16 @@ export default function Dashboard() {
   
   const handleStartStop = () => { 
       if (socket && userInfo) { 
-          console.log("🖱️ Clic bouton Démarrer/Stop")
           if (isRecording) {
               socket.emit("stop_session")
+              setIsRecording(false) // Optimistic update
           } else {
               setSessionTime(0)
               setHistory([])
               socket.emit("start_session", userInfo)
+              setIsRecording(true) // Optimistic update
           }
-      } else {
-          console.error("⛔ Impossible de démarrer : Socket ou UserInfo manquant")
-      }
+      } 
   }
 
   const handleReset = () => { if (socket) socket.emit("stop_session"); setHistory([]); setSessionTime(0); setCurrentMetrics(prev => ({ ...prev, engagement: 0, emotion: "neutral" })) }
@@ -179,40 +153,71 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full min-h-[600px]">
           <div className="lg:col-span-7 flex flex-col h-full">
             <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden transition-all duration-500 flex-1 flex flex-col group">
+              {/* ELEMENTS DECORATIFS (Anti-Crash: on utilise l'opacité au lieu de supprimer l'élément) */}
               <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
               <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
               <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
               <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
-              {isRecording && <div className="absolute inset-x-0 h-0.5 bg-green-500 shadow-[0_0_20px_#22c55e] z-10 animate-[scan_3s_ease-in-out_infinite]" style={{ top: '0%' }} />}
-              {isRecording && <div className="absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30" />}
+              
+              {/* BARRE DE SCAN (Toujours là, mais invisible si pas recording) */}
+              <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-[0_0_20px_#22c55e] z-10 animate-[scan_3s_ease-in-out_infinite] transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} style={{ top: '0%' }} />
+              
+              {/* BARRE ROUGE (Toujours là, mais invisible si pas recording) */}
+              <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
+
               <CardContent className="p-0 flex-1 relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
                 <canvas ref={canvasRef} width="480" height="360" className="hidden" />
                 <div className="absolute inset-0 w-full h-full relative">
                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                    {faceCoords && (
-                        <div className="absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear shadow-[0_0_15px_#22c55e]" style={{ left: `${(faceCoords.x / 480) * 100}%`, top: `${(faceCoords.y / 360) * 100}%`, width: `${(faceCoords.w / 480) * 100}%`, height: `${(faceCoords.h / 360) * 100}%`, transform: 'scaleX(-1)' }}>
-                             <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
-                        </div>
-                    )}
+                    
+                    {/* CADRE VISAGE (Sécurisé) */}
+                    <div 
+                        className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear shadow-[0_0_15px_#22c55e] ${faceCoords ? 'opacity-100' : 'opacity-0'}`} 
+                        style={{ 
+                            left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%', 
+                            top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%', 
+                            width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%', 
+                            height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%', 
+                            transform: 'scaleX(-1)' 
+                        }}
+                    >
+                         <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
+                    </div>
+
                     <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-10 bg-[length:100%_4px,6px_100%] pointer-events-none" />
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30"><Target className="w-64 h-64 text-white stroke-1" /></div>
                 <div className="z-20 w-full px-8 pb-8 mt-auto absolute bottom-0">
                   <div className="flex justify-between items-end mb-8">
                     <div>
-                       <div className="flex items-center gap-2 mb-2"><Badge variant="outline" className={`px-3 py-1 border-none backdrop-blur-md ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}><div className={`w-2 h-2 rounded-full mr-2 ${isRecording ? "bg-white" : "bg-slate-300"}`} />{isRecording ? "ENREGISTREMENT" : "PRÊT"}</Badge></div>
+                       {/* BADGE (Sécurisé avec supressHydrationWarning pour éviter les bugs de traduction) */}
+                       <div className="flex items-center gap-2 mb-2">
+                           <Badge variant="outline" className={`px-3 py-1 border-none backdrop-blur-md ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}>
+                               <div className={`w-2 h-2 rounded-full mr-2 ${isRecording ? "bg-white" : "bg-slate-300"}`} />
+                               <span suppressHydrationWarning>{isRecording ? "ENREGISTREMENT" : "PRÊT"}</span>
+                           </Badge>
+                       </div>
                        <div className="text-7xl font-mono font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">{formatTime(sessionTime)}</div>
                     </div>
                     <div className="text-right">
                         <div className="bg-white/90 backdrop-blur-xl px-6 py-4 rounded-xl border border-white shadow-2xl">
                             <span className="block text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Emotion Dominante</span>
-                            <span className="text-3xl font-bold text-slate-900 flex items-center justify-end gap-3">{getEmotionDisplay(currentMetrics.emotion)}</span>
+                            <span className="text-3xl font-bold text-slate-900 flex items-center justify-end gap-3" suppressHydrationWarning>{getEmotionDisplay(currentMetrics.emotion)}</span>
                         </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-center gap-8 pt-6 border-t border-white/20">
                     <Button size="icon" variant="outline" onClick={handleReset} className="h-14 w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all"><RotateCcw className="h-5 w-5" /></Button>
-                    {!isRecording ? (<Button onClick={handleStartStop} className="bg-green-600 hover:bg-green-500 text-white px-10 h-14 text-lg font-bold rounded-full shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-all hover:scale-105"><Play className="mr-2 h-5 w-5 fill-current" /> DÉMARRER</Button>) : (<Button onClick={handleStartStop} variant="destructive" className="px-10 h-14 text-lg font-bold rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all hover:scale-105"><Square className="mr-2 h-5 w-5 fill-current" /> STOP</Button>)}
+                    
+                    {/* BOUTON DEMARRER/STOP (Affichage conditionnel simplifié) */}
+                    <Button 
+                        onClick={handleStartStop} 
+                        variant={isRecording ? "destructive" : "default"}
+                        className={`px-10 h-14 text-lg font-bold rounded-full transition-all hover:scale-105 ${!isRecording ? "bg-green-600 hover:bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)]" : "shadow-[0_0_20px_rgba(239,68,68,0.4)]"}`}
+                    >
+                        {isRecording ? <Square className="mr-2 h-5 w-5 fill-current" /> : <Play className="mr-2 h-5 w-5 fill-current" />}
+                        <span suppressHydrationWarning>{isRecording ? "STOP" : "DÉMARRER"}</span>
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -227,7 +232,7 @@ export default function Dashboard() {
           </div>
         </div>
       </main>
-      <style jsx global>{` @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } } @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .animate-spin-slow { animation: spin-slow 10s linear infinite; } `}</style>
+      <style jsx global>{` @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } } `}</style>
     </div>
   )
 }
