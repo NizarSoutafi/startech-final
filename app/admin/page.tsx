@@ -1,157 +1,240 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { ArrowLeft, Calendar, Database, FileText, Trash2, Clock, Activity, ThumbsUp, LogOut, ArrowRightLeft, Trophy } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Fingerprint } from "lucide-react"
 import Link from "next/link"
-import ComparisonChart from "@/components/neurolink/comparison-chart"
 
-// --- CORRECTION ICI : On récupère l'URL du Cloud définie dans Vercel ---
+// --- CONFIGURATION API ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-const CircularProgress = ({ value, color, label, icon: Icon }: any) => {
-    const radius = 30; const circumference = 2 * Math.PI * radius; const offset = circumference - (value / 100) * circumference
-    return (
-      <div className="flex flex-col items-center justify-center space-y-2">
-        <div className="relative flex items-center justify-center">
-          <svg className="transform -rotate-90 w-24 h-24">
-            <circle cx="48" cy="48" r={radius} stroke="#e2e8f0" strokeWidth="8" fill="transparent" />
-            <circle cx="48" cy="48" r={radius} stroke={color} strokeWidth="8" fill="transparent" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-1000 ease-out" />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center flex-col"><span className="text-lg font-bold text-slate-900">{value}%</span></div>
-        </div>
-        <div className="flex items-center gap-1 text-xs font-medium text-slate-500 uppercase tracking-wide">{Icon && <Icon className="w-3 h-3" />} {label}</div>
-      </div>
-    )
-}
-
-export default function AdminPage() {
+export default function AdminDashboard() {
   const [sessions, setSessions] = useState<any[]>([])
-  const [isAuthorized, setIsAuthorized] = useState(false)
-  const router = useRouter()
-  const [isCompareMode, setIsCompareMode] = useState(false)
-  const [sessionA, setSessionA] = useState<any>(null); const [dataA, setDataA] = useState<any[]>([]); const [statsA, setStatsA] = useState<any>(null)
-  const [sessionB, setSessionB] = useState<any>(null); const [dataB, setDataB] = useState<any[]>([]); const [statsB, setStatsB] = useState<any>(null)
+  const [selectedSession, setSelectedSession] = useState<any | null>(null)
+  const [measurements, setMeasurements] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [loadingDetails, setLoadingDetails] = useState(false)
 
+  // 1. Charger la liste des sessions au démarrage
   useEffect(() => {
-    const token = localStorage.getItem("startech_admin_token")
-    if (token !== "authorized_access_granted") { router.push("/admin/login") } 
-    else { 
-        setIsAuthorized(true); 
-        // --- UTILISATION DE L'API CLOUD ---
-        fetch(`${API_URL}/api/sessions`)
-            .then(res => res.json())
-            .then(data => setSessions(data))
-            .catch(err => console.error("Erreur chargement sessions:", err))
-    }
+    fetchSessions()
   }, [])
 
-  const handleSelectSession = (sessionId: number) => {
-    // --- UTILISATION DE L'API CLOUD ---
-    fetch(`${API_URL}/api/sessions/${sessionId}`).then(res => res.json()).then(response => {
-        const info = response.info; const data = response.data; const stats = calculateStatsInternal(data)
-        if (isCompareMode) {
-            if (!sessionA) { setSessionA(info); setDataA(data); setStatsA(stats) } 
-            else if (!sessionB && sessionId !== sessionA.id) { setSessionB(info); setDataB(data); setStatsB(stats) } 
-            else if (sessionA && sessionB) { setSessionA(info); setDataA(data); setStatsA(stats); setSessionB(null); setDataB([]); setStatsB(null) }
-        } else { setSessionA(info); setDataA(data); setStatsA(stats); setSessionB(null); setDataB([]); setStatsB(null) }
-      })
+  const fetchSessions = async () => {
+    setIsLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/sessions`)
+      const data = await res.json()
+      setSessions(data || [])
+    } catch (e) {
+      console.error("Erreur chargement:", e)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const calculateStatsInternal = (data: any[]) => {
-    if (data.length === 0) return null
-    const avg = (key: string) => Math.round(data.reduce((acc, curr) => acc + curr[key], 0) / data.length)
-    return { duration: data.length, avg_engagement: avg('engagement_val'), avg_satisfaction: avg('satisfaction_val'), dominant_label: data[data.length - 1]?.satisfaction_lbl || "N/A" }
+  // 2. Charger les détails d'une session
+  const handleSelectSession = async (sessionId: number) => {
+    setLoadingDetails(true)
+    setSelectedSession(null)
+    try {
+      const res = await fetch(`${API_URL}/api/sessions/${sessionId}`)
+      const data = await res.json()
+      setSelectedSession(data.info)
+      setMeasurements(data.data || [])
+    } catch (e) {
+      console.error("Erreur détails:", e)
+    } finally {
+      setLoadingDetails(false)
+    }
   }
-  const toggleCompareMode = () => { setIsCompareMode(!isCompareMode); setSessionB(null); setDataB([]); setStatsB(null) }
-  const handleDeleteSession = async (e: React.MouseEvent, sessionId: number) => {
-    e.stopPropagation(); if (!confirm("Supprimer définitivement ?")) return
-    // --- UTILISATION DE L'API CLOUD ---
-    const res = await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: 'DELETE' })
-    if (res.ok) { setSessions(prev => prev.filter(s => s.id !== sessionId)); if (sessionA?.id === sessionId) { setSessionA(null); setDataA([]); setStatsA(null) }; if (sessionB?.id === sessionId) { setSessionB(null); setDataB([]); setStatsB(null) } }
+
+  // 3. Supprimer une session
+  const handleDelete = async (e: React.MouseEvent, sessionId: number) => {
+    e.stopPropagation() // Empêche le clic de sélectionner la session
+    if (!confirm("Voulez-vous vraiment supprimer cette session et toutes ses données ?")) return
+
+    try {
+      await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: 'DELETE' })
+      // On retire la session de la liste locale pour que ce soit instantané
+      setSessions(prev => prev.filter(s => s.id !== sessionId))
+      if (selectedSession?.id === sessionId) {
+        setSelectedSession(null)
+        setMeasurements([])
+      }
+    } catch (e) {
+      alert("Erreur lors de la suppression")
+    }
   }
-  const handleExport = (session: any, data: any) => {
-    if (!data.length) return
-    const headers = ["Temps", "Emotion", "Score IA", "Engagement", "Label Engagement", "Satisfaction", "Label Satisfaction", "Confiance", "Fidelite", "Avis"]
-    const rows = data.map((row: any) => [ String(row.session_time).replace('.', ','), row.emotion, row.emotion_score ? String(row.emotion_score.toFixed(2)).replace('.', ',') : "0", String(row.engagement_val), `"${row.engagement_lbl}"`, String(row.satisfaction_val), `"${row.satisfaction_lbl}"`, String(row.trust_val), String(row.loyalty_val), `"${row.opinion_lbl}"` ])
-    const csvContent = [headers.join(";"), ...rows.map((e: any) => e.join(";"))].join("\n")
-    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.setAttribute("download", `Rapport_${session.first_name}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link)
-  }
+
+  // --- RENDU VISUEL ---
   
-  const formatDate = (dateStr: string) => {
-      if (!dateStr) return "Date inconnue";
-      try { return new Date(dateStr).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) } catch (e) { return "Erreur date" }
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('fr-FR', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+    })
   }
-
-  if (!isAuthorized) return null
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      <header className="border-b border-slate-200 bg-white p-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
-        <div className="flex items-center gap-4">
-            <Link href="/"><Button variant="ghost" size="icon" className="text-slate-500 hover:text-blue-600 hover:bg-blue-50"><ArrowLeft className="w-5 h-5" /></Button></Link>
-            <div><h1 className="text-xl font-bold flex items-center gap-2 text-slate-900"><Database className="w-5 h-5 text-blue-600" /> STARTECH <span className="text-slate-400">ADMIN</span></h1></div>
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
+      {/* HEADER */}
+      <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            STARTECH <span className="text-green-600">ADMIN</span>
+          </h1>
+          <p className="text-slate-500">Supervision des sessions biométriques</p>
         </div>
-        <div className="flex items-center gap-4">
-            <Button onClick={toggleCompareMode} className={`gap-2 border transition-colors duration-200 ${isCompareMode ? "bg-purple-600 border-purple-600 text-white hover:bg-purple-700 hover:text-white" : "bg-white border-slate-300 text-slate-700 hover:bg-slate-100 hover:text-slate-900"}`}><ArrowRightLeft className="w-4 h-4" /> {isCompareMode ? "Mode Comparaison Actif" : "Comparer deux sessions"}</Button>
-            <Button variant="ghost" onClick={() => {localStorage.removeItem("startech_admin_token"); router.push("/admin/login")}} className="text-slate-500 hover:text-red-600 hover:bg-red-50 gap-2"><LogOut className="w-4 h-4" /></Button>
+        <div className="flex gap-4">
+          <Link href="/">
+            <Button variant="outline" className="gap-2">
+              <ArrowLeft className="w-4 h-4" /> Retour Dashboard
+            </Button>
+          </Link>
+          <Button onClick={fetchSessions} variant="default" className="bg-slate-900 text-white hover:bg-slate-800 gap-2">
+            <RefreshCcw className="w-4 h-4" /> Actualiser
+          </Button>
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden grid grid-cols-12 h-[calc(100vh-64px)]">
-        <div className="col-span-3 border-r border-slate-200 bg-white flex flex-col h-full">
-            <div className="p-4 border-b border-slate-200 bg-slate-50/50"><h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Historique</h2></div>
-            <ScrollArea className="flex-1 bg-white">
-                <div className="flex flex-col">
-                    {sessions.map((session) => {
-                        const isA = sessionA?.id === session.id; const isB = sessionB?.id === session.id
-                        let activeClass = "border-l-4 border-l-transparent"
-                        if (isA) activeClass = "bg-blue-50 border-l-blue-500"; if (isB) activeClass = "bg-orange-50 border-l-orange-500"
-                        return (
-                            <div key={session.id} onClick={() => handleSelectSession(session.id)} className={`group flex items-center justify-between p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-all ${activeClass}`}>
-                                <div>
-                                    <div className="font-bold flex items-center gap-2 text-slate-800">{session.first_name} {session.last_name} {isA && <Badge className="bg-blue-500 h-4 px-1 text-[9px]">A</Badge>} {isB && <Badge className="bg-orange-500 h-4 px-1 text-[9px]">B</Badge>}</div>
-                                    <div className="text-xs text-slate-500 mt-1 flex items-center gap-2"><Calendar className="w-3 h-3" /> {formatDate(session.created_at)}</div>
-                                </div>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 opacity-0 group-hover:opacity-100" onClick={(e) => handleDeleteSession(e, session.id)}><Trash2 className="w-4 h-4 hover:text-red-500" /></Button>
-                            </div>
-                        )
-                    })}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* COLONNE GAUCHE : LISTE DES SESSIONS */}
+        <div className="lg:col-span-4 space-y-4">
+          <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
+            <CardHeader className="pb-3 border-b border-slate-100">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Clock className="w-5 h-5 text-slate-400" /> Historique ({sessions.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 overflow-y-auto flex-1 custom-scrollbar">
+              {isLoading ? (
+                <div className="p-8 text-center text-slate-400 animate-pulse">Chargement...</div>
+              ) : sessions.length === 0 ? (
+                <div className="p-8 text-center text-slate-400">Aucune session enregistrée</div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {sessions.map((session) => (
+                    <div 
+                      key={session.id}
+                      onClick={() => handleSelectSession(session.id)}
+                      className={`p-4 cursor-pointer transition-all hover:bg-slate-50 relative group ${selectedSession?.id === session.id ? "bg-green-50 border-l-4 border-green-500" : "border-l-4 border-transparent"}`}
+                    >
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="font-bold text-slate-900">{session.first_name} {session.last_name}</span>
+                        <Badge variant="secondary" className="text-[10px] bg-slate-100 text-slate-500">{formatDate(session.created_at)}</Badge>
+                      </div>
+                      <div className="text-xs text-slate-500 flex items-center gap-2">
+                        <Fingerprint className="w-3 h-3" /> {session.client_id || "ID: N/A"}
+                      </div>
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="absolute right-2 bottom-2 h-8 w-8 text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => handleDelete(e, session.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
-            </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="col-span-9 p-6 overflow-y-auto bg-slate-50">
-            {!isCompareMode && sessionA && statsA && (
-                <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                     <div className="flex justify-between items-start">
-                        <div><h2 className="text-3xl font-bold text-slate-900">{sessionA.first_name} {sessionA.last_name}</h2><p className="text-slate-500 flex items-center gap-2 mt-1"><Clock className="w-4 h-4" /> Durée: {statsA.duration}s | ID: {sessionA.client_id || "N/A"}</p></div>
-                        <Button variant="outline" className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50" onClick={() => handleExport(sessionA, dataA)}><FileText className="w-4 h-4 mr-2" /> CSV</Button>
+        {/* COLONNE DROITE : DÉTAILS ET TABLEAU */}
+        <div className="lg:col-span-8">
+          {selectedSession ? (
+            <div className="space-y-6">
+              {/* CARTE INFO SESSION */}
+              <Card className="border-slate-200 shadow-sm bg-white">
+                <CardHeader className="pb-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <CardTitle className="text-2xl font-bold flex items-center gap-2">
+                        <User className="w-6 h-6 text-green-600" />
+                        {selectedSession.first_name} {selectedSession.last_name}
+                      </CardTitle>
+                      <CardDescription className="mt-1 flex items-center gap-4">
+                        <span className="bg-slate-100 px-2 py-1 rounded text-xs font-mono text-slate-600">ID: {selectedSession.client_id}</span>
+                        <span>Date: {formatDate(selectedSession.created_at)}</span>
+                      </CardDescription>
                     </div>
-                    <div className="grid grid-cols-3 gap-6">
-                        <Card className="bg-white shadow-sm border-slate-200"><CardContent className="pt-6"><CircularProgress value={statsA.avg_engagement} color="#3b82f6" label="Engagement" icon={Activity} /></CardContent></Card>
-                        <Card className="bg-white shadow-sm border-slate-200"><CardContent className="pt-6"><CircularProgress value={statsA.avg_satisfaction} color="#22c55e" label="Satisfaction" icon={ThumbsUp} /></CardContent></Card>
-                        <Card className="flex items-center justify-center bg-slate-900 text-white shadow-sm border-slate-900"><div className="text-center"><Badge variant="outline" className="mb-2 text-slate-400 border-slate-700">Verdict</Badge><div className="text-xl font-bold">{statsA.dominant_label}</div></div></Card>
+                    <div className="text-right">
+                       <div className="text-3xl font-bold text-slate-900">{measurements.length}</div>
+                       <div className="text-xs text-slate-500 uppercase tracking-wider">Points de mesure</div>
                     </div>
-                    <Card className="bg-white shadow-sm border-slate-200"><CardHeader><CardTitle className="text-slate-900">Analyse Temporelle</CardTitle></CardHeader><CardContent><ComparisonChart dataA={dataA} dataB={[]} nameA={`${sessionA.first_name} (Engagement)`} nameB="" /></CardContent></Card>
-                    <Card className="bg-white shadow-sm border-slate-200"><CardHeader><CardTitle className="text-slate-900">Données Brutes Complètes</CardTitle></CardHeader><CardContent><div className="rounded-md border border-slate-200 overflow-hidden"><ScrollArea className="h-[400px] w-full"><table className="w-full text-sm text-left text-slate-700"><thead className="bg-slate-100 font-medium sticky top-0 z-10 text-slate-900"><tr><th className="p-3">Temps</th><th className="p-3">Émotion</th><th className="p-3">Score IA</th><th className="p-3 border-l border-slate-200">Engagement</th><th className="p-3 border-l border-slate-200">Satisfaction</th><th className="p-3 border-l border-slate-200">Confiance</th><th className="p-3 border-l border-slate-200">Fidélité</th><th className="p-3 border-l border-slate-200">Avis</th></tr></thead><tbody className="divide-y divide-slate-100">{dataA.map((row, i) => (<tr key={i} className="hover:bg-slate-50 transition-colors"><td className="p-3 font-mono text-xs">{row.session_time}s</td><td className="p-3 capitalize flex items-center gap-2"><Badge variant="secondary" className="text-[10px] bg-slate-100 text-slate-700">{row.emotion}</Badge></td><td className="p-3 font-mono text-xs text-slate-500">{row.emotion_score?.toFixed(1)}%</td><td className="p-3 border-l border-slate-100"><div className="flex flex-col"><span className="font-bold text-xs">{row.engagement_val}%</span><span className="text-[10px] text-slate-400">{row.engagement_lbl}</span></div></td><td className="p-3 border-l border-slate-100"><div className="flex flex-col"><span className={`font-bold text-xs ${row.satisfaction_val > 50 ? "text-green-600" : "text-orange-500"}`}>{row.satisfaction_val}%</span><span className="text-[10px] text-slate-400">{row.satisfaction_lbl}</span></div></td><td className="p-3 border-l border-slate-100"><div className="flex flex-col"><span className="font-bold text-xs">{row.trust_val}%</span><span className="text-[10px] text-slate-400">{row.trust_lbl}</span></div></td><td className="p-3 border-l border-slate-100"><div className="flex flex-col"><span className="font-bold text-xs">{row.loyalty_val}%</span><span className="text-[10px] text-slate-400">{row.loyalty_lbl}</span></div></td><td className="p-3 border-l border-slate-100"><span className="text-xs">{row.opinion_lbl}</span></td></tr>))}</tbody></table></ScrollArea></div></CardContent></Card>
+                  </div>
+                </CardHeader>
+              </Card>
+
+              {/* TABLEAU DES DONNÉES */}
+              <Card className="border-slate-200 shadow-md bg-white overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-6 py-3 font-bold">Temps</th>
+                        <th className="px-6 py-3 font-bold">Émotion</th>
+                        <th className="px-6 py-3 font-bold text-center">Score IA</th>
+                        <th className="px-6 py-3 font-bold">Engagement</th>
+                        <th className="px-6 py-3 font-bold">Satisfaction</th>
+                        <th className="px-6 py-3 font-bold">Confiance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {measurements.map((m, i) => (
+                        <tr key={i} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-6 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
+                          <td className="px-6 py-3">
+                            <Badge variant="outline" className={`
+                              ${m.emotion === 'happy' ? 'bg-green-100 text-green-800 border-green-200' : 
+                                m.emotion === 'sad' || m.emotion === 'angry' || m.emotion === 'fear' ? 'bg-red-100 text-red-800 border-red-200' : 
+                                'bg-slate-100 text-slate-800 border-slate-200'}
+                            `}>
+                              {m.emotion.toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-3 text-center text-slate-500">
+                            {m.emotion_score ? Math.round(m.emotion_score * 10) / 10 + '%' : '-'}
+                          </td>
+                          <td className="px-6 py-3">
+                            <div className="flex flex-col">
+                                <span className="font-bold text-slate-900">{Math.round(m.engagement_val)}%</span>
+                                <span className="text-[10px] text-slate-400 truncate max-w-[100px]">{m.engagement_lbl}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3">
+                            <div className="flex flex-col">
+                                <span className="font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</span>
+                                <span className="text-[10px] text-slate-400 truncate max-w-[100px]">{m.satisfaction_lbl}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3">
+                            <span className="font-bold text-slate-700">{Math.round(m.trust_val)}%</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-            )}
-            {isCompareMode && sessionA && sessionB && statsA && statsB && (
-                 <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in zoom-in-95">
-                    <div className="grid grid-cols-3 items-center text-center bg-white shadow-sm p-6 rounded-2xl border border-slate-200"><div className="text-blue-600"><div className="text-2xl font-bold">{sessionA.first_name}</div><div className="text-sm opacity-70">Session A</div></div><div className="flex justify-center"><div className="bg-slate-100 rounded-full px-4 py-1 text-xs font-bold text-slate-500 border border-slate-200">VS</div></div><div className="text-orange-500"><div className="text-2xl font-bold">{sessionB.first_name}</div><div className="text-sm opacity-70">Session B</div></div></div>
-                    <Card className="border-slate-200 bg-white shadow-sm"><CardHeader><CardTitle className="text-slate-900">Duel d'Engagement</CardTitle></CardHeader><CardContent><ComparisonChart dataA={dataA} dataB={dataB} nameA={`Engagement ${sessionA.first_name}`} nameB={`Engagement ${sessionB.first_name}`} /></CardContent></Card>
-                    <div className="grid grid-cols-2 gap-6"><Card className={`border-t-4 border-t-blue-500 shadow-sm bg-white ${statsA.avg_engagement > statsB.avg_engagement ? "bg-blue-50" : ""}`}><CardHeader><CardTitle className="flex justify-between text-slate-900">{sessionA.first_name}{statsA.avg_engagement > statsB.avg_engagement && <Badge className="bg-yellow-400 text-black gap-1 hover:bg-yellow-500"><Trophy className="w-3 h-3" /> Vainqueur</Badge>}</CardTitle></CardHeader><CardContent className="grid grid-cols-2 gap-4"><CircularProgress value={statsA.avg_engagement} color="#3b82f6" label="Engagement" icon={Activity} /><CircularProgress value={statsA.avg_satisfaction} color="#3b82f6" label="Satisfaction" icon={ThumbsUp} /></CardContent></Card><Card className={`border-t-4 border-t-orange-500 shadow-sm bg-white ${statsB.avg_engagement > statsA.avg_engagement ? "bg-orange-50" : ""}`}><CardHeader><CardTitle className="flex justify-between text-slate-900">{sessionB.first_name}{statsB.avg_engagement > statsA.avg_engagement && <Badge className="bg-yellow-400 text-black gap-1 hover:bg-yellow-500"><Trophy className="w-3 h-3" /> Vainqueur</Badge>}</CardTitle></CardHeader><CardContent className="grid grid-cols-2 gap-4"><CircularProgress value={statsB.avg_engagement} color="#f97316" label="Engagement" icon={Activity} /><CircularProgress value={statsB.avg_satisfaction} color="#f97316" label="Satisfaction" icon={ThumbsUp} /></CardContent></Card></div>
-                 </div>
-            )}
-            {(!sessionA) && <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-50"><ArrowLeft className="w-12 h-12 mb-4 animate-pulse" /><p>Sélectionnez une session à gauche pour commencer.</p></div>}
-            {(isCompareMode && sessionA && !sessionB) && <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-50"><div className="text-blue-600 font-bold mb-2">Session A : {sessionA.first_name} sélectionnée.</div><p>Maintenant, sélectionnez la Session B dans la liste.</p></div>}
+              </Card>
+            </div>
+          ) : (
+            /* PLACEHOLDER QUAND RIEN N'EST SÉLECTIONNÉ */
+            <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+              <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                <User className="w-8 h-8 text-slate-300" />
+              </div>
+              <p className="text-lg font-medium">Sélectionnez une session</p>
+              <p className="text-sm">Cliquez sur un nom à gauche pour voir l'analyse.</p>
+            </div>
+          )}
         </div>
-      </main>
+      </div>
     </div>
   )
 }
