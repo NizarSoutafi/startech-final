@@ -7,16 +7,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, RefreshCcw, ArrowLeft, Clock, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart } from "lucide-react"
 import Link from "next/link"
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 
 // --- CONFIGURATION ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-
-// ⚠️ Configuration Supabase
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://gwjrwejdjpctizolfkcz.supabase.co"
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3anJ3ZWpkanBjdGl6b2xma2N6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTA5ODEyNCwiZXhwIjoyMDg0Njc0MTI0fQ.EjU1DGTN-jrdkaC6nJWilFtYZgtu-NKjnfiMVMnHal0"
 
@@ -35,10 +33,15 @@ export default function AdminDashboard() {
   const [selectedSession, setSelectedSession] = useState<any | null>(null)
   const [measurements, setMeasurements] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [loadingDetails, setLoadingDetails] = useState(false)
+  
+  // --- STATES MULTI-SELECTION ---
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [comparisonMode, setComparisonMode] = useState(false) // Nouveau mode
+  const [comparisonData, setComparisonData] = useState<any[]>([]) // Données comparées
+  const [isComparing, setIsComparing] = useState(false)
 
+  // 1. Vérifier la session
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -51,6 +54,7 @@ export default function AdminDashboard() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // --- AUTH ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setAuthLoading(true); setAuthError("")
@@ -64,6 +68,7 @@ export default function AdminDashboard() {
     setSession(null); setSessions([]); setSelectedSession(null)
   }
 
+  // --- API CALLS ---
   const fetchSessions = async () => {
     setIsLoading(true)
     try {
@@ -71,17 +76,32 @@ export default function AdminDashboard() {
       const data = await res.json()
       setSessions(data || [])
       setSelectedIds([])
+      setComparisonMode(false)
     } catch (e) { console.error(e) } finally { setIsLoading(false) }
   }
 
   const handleSelectSession = async (sessionId: number) => {
-    setLoadingDetails(true); setSelectedSession(null)
+    // Si on clique sur une session, on quitte le mode comparaison
+    setComparisonMode(false)
+    setSelectedSession(null)
     try {
       const res = await fetch(`${API_URL}/api/sessions/${sessionId}`)
       const data = await res.json()
       setSelectedSession(data.info)
       setMeasurements(data.data || [])
-    } catch (e) { console.error(e) } finally { setLoadingDetails(false) }
+    } catch (e) { console.error(e) }
+  }
+
+  // --- GESTION MULTI-SELECTION ---
+  const toggleSelection = (e: React.MouseEvent, id: number) => {
+      e.stopPropagation()
+      if (selectedIds.includes(id)) setSelectedIds(prev => prev.filter(item => item !== id))
+      else setSelectedIds(prev => [...prev, id])
+  }
+
+  const selectAll = () => {
+      if (selectedIds.length === sessions.length) setSelectedIds([])
+      else setSelectedIds(sessions.map(s => s.id))
   }
 
   const handleDelete = async (e: React.MouseEvent, sessionId: number) => {
@@ -95,30 +115,69 @@ export default function AdminDashboard() {
     } catch (e) { alert("Erreur suppression") }
   }
 
-  const toggleSelection = (e: React.MouseEvent, id: number) => {
-      e.stopPropagation()
-      if (selectedIds.includes(id)) setSelectedIds(prev => prev.filter(item => item !== id))
-      else setSelectedIds(prev => [...prev, id])
-  }
-
-  const selectAll = () => {
-      if (selectedIds.length === sessions.length) setSelectedIds([])
-      else setSelectedIds(sessions.map(s => s.id))
-  }
-
   const handleBulkDelete = async () => {
       if (!confirm(`Supprimer ces ${selectedIds.length} sessions ?`)) return
       setIsBulkDeleting(true)
       try {
           await Promise.all(selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`, { method: 'DELETE' })))
           setSessions(prev => prev.filter(s => !selectedIds.includes(s.id)))
-          if (selectedSession && selectedIds.includes(selectedSession.id)) { setSelectedSession(null); setMeasurements([]) }
           setSelectedIds([])
+          setSelectedSession(null)
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
+  // --- NOUVEAU : LOGIQUE DE COMPARAISON ---
+  const handleCompare = async () => {
+    if (selectedIds.length < 2) return
+    setIsComparing(true)
+    setComparisonMode(true)
+    setComparisonData([])
+    setSelectedSession(null) // On cache la vue individuelle
 
+    try {
+      // On récupère les détails de CHAQUE session sélectionnée
+      const promises = selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`).then(res => res.json()))
+      const results = await Promise.all(promises)
+
+      // On calcule les moyennes pour chaque utilisateur
+      const stats = results.map((res: any) => {
+        const measures = res.data || []
+        const avgEng = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.engagement_val, 0) / measures.length : 0
+        const avgSat = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.satisfaction_val, 0) / measures.length : 0
+        const avgTrust = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.trust_val, 0) / measures.length : 0
+        
+        return {
+          name: `${res.info.first_name} ${res.info.last_name}`,
+          id: res.info.id,
+          engagement: Math.round(avgEng),
+          satisfaction: Math.round(avgSat),
+          trust: Math.round(avgTrust),
+          duration: measures.length
+        }
+      })
+
+      setComparisonData(stats)
+    } catch (error) {
+      console.error("Erreur comparaison", error)
+    } finally {
+      setIsComparing(false)
+    }
+  }
+
+  // --- HELPERS AFFICHAGE ---
+  const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
+  const formatDate = (dateString: string) => new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const stripEmojis = (str: string) => str.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '').trim()
+
+  // Calculs pour Single View
+  const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
+  const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
+
+  // Calculs pour Multi View
+  const groupAvgEng = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.engagement, 0) / comparisonData.length) : 0
+  const groupAvgSat = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.satisfaction, 0) / comparisonData.length) : 0
+
+  // Exports (Identiques à avant pour Single View)
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
@@ -127,137 +186,53 @@ export default function AdminDashboard() {
     measurements.forEach((m) => {
         const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
         const avis = getAvisLabel(m.opinion_val)
-        const row = [
-            m.session_time, m.emotion, score, Math.round(m.engagement_val), m.engagement_lbl,
-            Math.round(m.satisfaction_val), m.satisfaction_lbl, Math.round(m.trust_val), Math.round(m.loyalty_val), avis
-        ].join(separator)
+        const row = [m.session_time, m.emotion, score, Math.round(m.engagement_val), m.engagement_lbl, Math.round(m.satisfaction_val), m.satisfaction_lbl, Math.round(m.trust_val), Math.round(m.loyalty_val), avis].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
-    const link = document.createElement("a")
-    link.setAttribute("href", encodedUri)
-    const filename = `Rapport_${selectedSession.first_name}_${selectedSession.last_name}.csv`
-    link.setAttribute("download", filename)
-    document.body.appendChild(link); link.click(); document.body.removeChild(link)
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-  }
-
-  const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
-  const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
-
-  // --- EXPORT PDF CORRIGÉ (SANS EMOJIS) ---
-  const stripEmojis = (str: string) => {
-      return str
-        .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
-        .trim();
+    const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_${selectedSession.first_name}_${selectedSession.last_name}.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
 
   const handleExportPDF = () => {
     if (!measurements.length || !selectedSession) return
-
     const doc = new jsPDF()
-
-    // En-tête vert
     doc.setFillColor(34, 197, 94); doc.rect(0, 0, 210, 24, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold")
-    doc.text("STARTECH VISION", 14, 16)
-    doc.setFontSize(10); doc.setFont("helvetica", "normal")
-    doc.text("RAPPORT D'ANALYSE BIOMÉTRIQUE", 200, 16, { align: "right" })
-
-    // Infos Client
+    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("STARTECH VISION", 14, 16)
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("RAPPORT D'ANALYSE BIOMÉTRIQUE", 200, 16, { align: "right" })
     doc.setTextColor(0, 0, 0); doc.setFontSize(10)
     doc.text(`Client : ${selectedSession.first_name} ${selectedSession.last_name}`, 14, 35)
     doc.text(`ID Projet : ${selectedSession.client_id || "N/A"}`, 14, 41)
     doc.text(`Date : ${formatDate(selectedSession.created_at)}`, 14, 47)
     doc.text(`Durée : ${measurements.length} secondes`, 14, 53)
-
-    // Résumé (Encadré Gris)
     doc.setFillColor(245, 245, 245); doc.roundedRect(14, 60, 182, 25, 2, 2, 'F')
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11)
-    doc.text("SYNTHÈSE DE LA SESSION", 105, 68, { align: "center" })
-    
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DE LA SESSION", 105, 68, { align: "center" })
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
-    // On retire les émojis pour l'affichage PDF
-    const lastAvisRaw = measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A"
-    const lastAvisClean = stripEmojis(lastAvisRaw)
-
-    doc.text(`Implication Moy. : ${avgEngagement}%`, 25, 78)
-    doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 90, 78)
-    doc.text(`Tendance : ${lastAvisClean}`, 155, 78)
-
-    // Tableau de données
-    const tableRows = measurements.map(m => [
-      m.session_time,
-      m.emotion?.toUpperCase(),
-      m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-',
-      stripEmojis(m.engagement_lbl), // Nettoyage
-      stripEmojis(m.satisfaction_lbl), // Nettoyage
-      stripEmojis(getAvisLabel(m.opinion_val)) // Nettoyage
-    ])
-
-    autoTable(doc, {
-      head: [['T(s)', 'Emotion', 'Score', 'Implication', 'Satisfaction', 'Avis']],
-      body: tableRows,
-      startY: 95,
-      theme: 'grid',
-      headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' },
-      bodyStyles: { textColor: 50, halign: 'center' },
-      alternateRowStyles: { fillColor: [240, 253, 244] },
-      styles: { fontSize: 9, cellPadding: 3 }
-    })
-
-    // Pied de page
+    const lastAvisClean = stripEmojis(measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A")
+    doc.text(`Implication Moy. : ${avgEngagement}%`, 25, 78); doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 90, 78); doc.text(`Tendance : ${lastAvisClean}`, 155, 78)
+    const tableRows = measurements.map(m => [m.session_time, m.emotion?.toUpperCase(), m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-', stripEmojis(m.engagement_lbl), stripEmojis(m.satisfaction_lbl), stripEmojis(getAvisLabel(m.opinion_val))])
+    autoTable(doc, { head: [['T(s)', 'Emotion', 'Score', 'Implication', 'Satisfaction', 'Avis']], body: tableRows, startY: 95, theme: 'grid', headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' }, bodyStyles: { textColor: 50, halign: 'center' }, alternateRowStyles: { fillColor: [240, 253, 244] }, styles: { fontSize: 9, cellPadding: 3 } })
     const pageCount = doc.getNumberOfPages()
-    for(let i = 1; i <= pageCount; i++) {
-        doc.setPage(i)
-        doc.setFontSize(8); doc.setTextColor(150)
-        doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI - Confidentiel`, 105, 290, { align: 'center' })
-    }
-
+    for(let i = 1; i <= pageCount; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(150); doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI - Confidentiel`, 105, 290, { align: 'center' }) }
     doc.save(`Rapport_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
   }
 
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 via-slate-50 to-white opacity-80"></div>
-         <Card className="w-full max-w-sm relative z-10 shadow-xl border-slate-200">
-            <CardHeader className="text-center space-y-4">
-                <div className="mx-auto w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center shadow-lg"><Lock className="w-8 h-8 text-green-500" /></div>
-                <div><CardTitle className="text-2xl font-bold text-slate-900">Admin Login</CardTitle><CardDescription>Accès sécurisé Supabase</CardDescription></div>
-            </CardHeader>
-            <form onSubmit={handleLogin}>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" placeholder="admin@startech.com" value={email} onChange={e => setEmail(e.target.value)} required /></div>
-                    <div className="space-y-2"><Label htmlFor="password">Mot de passe</Label><Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required /></div>
-                    {authError && <div className="text-sm text-red-500 font-medium text-center bg-red-50 p-2 rounded">{authError}</div>}
-                </CardContent>
-                <CardFooter><Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={authLoading}>{authLoading ? "Connexion..." : "Se connecter"}</Button></CardFooter>
-            </form>
-            <div className="p-4 text-center"><Link href="/"><Button variant="link" className="text-slate-400 btn-sm h-auto p-0">← Retour Site</Button></Link></div>
-         </Card>
-      </div>
-    )
-  }
+  // --- LOGIN VIEW ---
+  if (!session) { return ( <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4"> <Card className="w-full max-w-sm shadow-xl"> <CardHeader className="text-center"> <Lock className="w-8 h-8 text-green-500 mx-auto mb-2" /> <CardTitle>Admin Login</CardTitle> </CardHeader> <form onSubmit={handleLogin}> <CardContent className="space-y-4"> <div className="space-y-2"><Label>Email</Label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} required /></div> <div className="space-y-2"><Label>Password</Label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></div> {authError && <div className="text-red-500 text-sm text-center">{authError}</div>} </CardContent> <CardFooter><Button type="submit" className="w-full bg-green-600" disabled={authLoading}>Se connecter</Button></CardFooter> </form> </Card> </div> ) }
 
+  // --- MAIN DASHBOARD ---
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">STARTECH <span className="text-green-600">ADMIN</span></h1>
-          <p className="text-slate-500">Supervision & Gestion de Masse</p>
-        </div>
+        <div><h1 className="text-3xl font-bold tracking-tight">STARTECH <span className="text-green-600">ADMIN</span></h1><p className="text-slate-500">Supervision & Gestion de Masse</p></div>
         <div className="flex gap-4 items-center">
-          <span className="text-xs font-mono text-slate-400 mr-2 hidden md:inline">{session.user.email}</span>
           <Link href="/"><Button variant="outline" className="gap-2"><ArrowLeft className="w-4 h-4" /> Dashboard</Button></Link>
-          <Button onClick={fetchSessions} className="bg-slate-900 text-white hover:bg-slate-800 gap-2"><RefreshCcw className="w-4 h-4" /> Actualiser</Button>
+          <Button onClick={fetchSessions} className="bg-slate-900 text-white gap-2"><RefreshCcw className="w-4 h-4" /> Actualiser</Button>
           <Button onClick={handleLogout} variant="destructive" size="icon"><LogOut className="w-4 h-4" /></Button>
         </div>
       </header>
+
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* SIDEBAR */}
         <div className="lg:col-span-3 space-y-4">
           <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
             <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50 p-4">
@@ -268,9 +243,17 @@ export default function AdminDashboard() {
                       </Button>
                       <span className="text-xs font-bold text-slate-500 uppercase">{selectedIds.length} Sél.</span>
                   </div>
-                  {selectedIds.length > 0 && (
-                      <Button size="sm" variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting} className="h-7 text-xs px-2">{isBulkDeleting ? "..." : <Trash2 className="w-3 h-3" />}</Button>
-                  )}
+                  <div className="flex gap-1">
+                    {/* BOUTON COMPARER (Nouveau) */}
+                    {selectedIds.length > 1 && (
+                      <Button size="sm" variant="default" onClick={handleCompare} className="h-7 text-xs px-2 bg-blue-600 hover:bg-blue-700 text-white" title="Comparer les sessions sélectionnées">
+                          <PieChart className="w-3 h-3 mr-1" /> Comparer
+                      </Button>
+                    )}
+                    {selectedIds.length > 0 && (
+                        <Button size="sm" variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting} className="h-7 text-xs px-2"><Trash2 className="w-3 h-3" /></Button>
+                    )}
+                  </div>
               </div>
             </CardHeader>
             <CardContent className="p-0 overflow-y-auto flex-1 custom-scrollbar">
@@ -298,14 +281,83 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* MAIN CONTENT AREA */}
         <div className="lg:col-span-9 space-y-6">
-          {selectedSession ? (
+          
+          {/* VUE COMPARAISON (GROUPE) */}
+          {comparisonMode && comparisonData.length > 0 ? (
+             <div className="space-y-6 animate-in fade-in zoom-in duration-300">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold flex items-center gap-2 text-blue-700">
+                        <Users className="w-6 h-6" /> Analyse de Groupe ({comparisonData.length} profils)
+                    </h2>
+                    <Button variant="outline" size="sm" onClick={() => setComparisonMode(false)}>Fermer</Button>
+                </div>
+
+                {/* KPIS GLOBAUX DU GROUPE */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Moyenne Implication</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Moyenne Satisfaction</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
+                    <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Profils Analysés</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-slate-900">{comparisonData.length}</div></CardContent></Card>
+                </div>
+
+                {/* GRAPHIQUE COMPARATIF */}
+                <Card className="border-slate-200 shadow-sm bg-white">
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2">Comparatif des Performances</CardTitle></CardHeader>
+                    <CardContent className="h-[350px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={comparisonData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="name" fontSize={12} />
+                                <YAxis domain={[0, 100]} />
+                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '8px' }} />
+                                <Legend />
+                                <Bar dataKey="engagement" name="Implication" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="satisfaction" name="Satisfaction" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
+
+                {/* TABLEAU RÉCAPITULATIF */}
+                <Card className="border-slate-200 shadow-sm bg-white">
+                    <CardHeader><CardTitle className="text-sm uppercase text-slate-500">Détails par profil</CardTitle></CardHeader>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                                <tr>
+                                    <th className="px-4 py-3">Nom</th>
+                                    <th className="px-4 py-3">Implication</th>
+                                    <th className="px-4 py-3">Satisfaction</th>
+                                    <th className="px-4 py-3">Confiance</th>
+                                    <th className="px-4 py-3">Durée</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {comparisonData.map((d, i) => (
+                                    <tr key={i} className="hover:bg-slate-50">
+                                        <td className="px-4 py-3 font-bold text-slate-700">{d.name}</td>
+                                        <td className="px-4 py-3 font-bold text-green-600">{d.engagement}%</td>
+                                        <td className="px-4 py-3 font-bold text-blue-600">{d.satisfaction}%</td>
+                                        <td className="px-4 py-3">{d.trust}%</td>
+                                        <td className="px-4 py-3 text-slate-400">{d.duration}s</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+             </div>
+          ) : selectedSession ? (
+            /* VUE INDIVIDUELLE (ANCIENNE VUE) */
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Implication Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
+
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle></CardHeader>
                 <CardContent className="h-[300px]">
@@ -325,6 +377,7 @@ export default function AdminDashboard() {
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
+
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
@@ -370,9 +423,10 @@ export default function AdminDashboard() {
               </Card>
             </>
           ) : (
+            /* VUE VIDE (AUCUNE SÉLECTION) */
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
               <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4"><User className="w-8 h-8 text-slate-300" /></div>
-              <p className="text-lg font-medium">Sélectionnez une session</p>
+              <p className="text-lg font-medium">Sélectionnez une session ou cochez-en plusieurs pour comparer</p>
             </div>
           )}
         </div>
