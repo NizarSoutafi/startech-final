@@ -37,8 +37,8 @@ export default function AdminDashboard() {
   // --- STATES MULTI-SELECTION ---
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
-  const [comparisonMode, setComparisonMode] = useState(false) // Nouveau mode
-  const [comparisonData, setComparisonData] = useState<any[]>([]) // Données comparées
+  const [comparisonMode, setComparisonMode] = useState(false) 
+  const [comparisonData, setComparisonData] = useState<any[]>([]) 
   const [isComparing, setIsComparing] = useState(false)
 
   // 1. Vérifier la session
@@ -81,7 +81,6 @@ export default function AdminDashboard() {
   }
 
   const handleSelectSession = async (sessionId: number) => {
-    // Si on clique sur une session, on quitte le mode comparaison
     setComparisonMode(false)
     setSelectedSession(null)
     try {
@@ -126,32 +125,32 @@ export default function AdminDashboard() {
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  // --- NOUVEAU : LOGIQUE DE COMPARAISON ---
+  // --- LOGIQUE DE COMPARAISON ---
   const handleCompare = async () => {
     if (selectedIds.length < 2) return
     setIsComparing(true)
     setComparisonMode(true)
     setComparisonData([])
-    setSelectedSession(null) // On cache la vue individuelle
+    setSelectedSession(null)
 
     try {
-      // On récupère les détails de CHAQUE session sélectionnée
       const promises = selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`).then(res => res.json()))
       const results = await Promise.all(promises)
 
-      // On calcule les moyennes pour chaque utilisateur
       const stats = results.map((res: any) => {
         const measures = res.data || []
         const avgEng = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.engagement_val, 0) / measures.length : 0
         const avgSat = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.satisfaction_val, 0) / measures.length : 0
         const avgTrust = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.trust_val, 0) / measures.length : 0
+        const avgLoyalty = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.loyalty_val, 0) / measures.length : 0
         
         return {
           name: `${res.info.first_name} ${res.info.last_name}`,
           id: res.info.id,
-          engagement: Math.round(avgEng),
+          engagement: Math.round(avgEng),   // Compréhension
           satisfaction: Math.round(avgSat),
           trust: Math.round(avgTrust),
+          loyalty: Math.round(avgLoyalty),  // Crédibilité
           duration: measures.length
         }
       })
@@ -177,12 +176,13 @@ export default function AdminDashboard() {
   const groupAvgEng = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.engagement, 0) / comparisonData.length) : 0
   const groupAvgSat = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.satisfaction, 0) / comparisonData.length) : 0
 
-  // Exports (Identiques à avant pour Single View)
+  // --- EXPORTS INDIVIDUELS ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Implication Client${separator}Label Implication${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Fidelite${separator}Avis Global\n`
+    // MODIF: Changement des headers
+    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Label Comprehension${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Credibilite${separator}Avis Global\n`
     measurements.forEach((m) => {
         const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
         const avis = getAvisLabel(m.opinion_val)
@@ -208,12 +208,67 @@ export default function AdminDashboard() {
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DE LA SESSION", 105, 68, { align: "center" })
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
     const lastAvisClean = stripEmojis(measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A")
-    doc.text(`Implication Moy. : ${avgEngagement}%`, 25, 78); doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 90, 78); doc.text(`Tendance : ${lastAvisClean}`, 155, 78)
+    // MODIF: Changement des labels
+    doc.text(`Compréhension Moy. : ${avgEngagement}%`, 25, 78); doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 90, 78); doc.text(`Tendance : ${lastAvisClean}`, 155, 78)
+    // MODIF: Changement des headers table
     const tableRows = measurements.map(m => [m.session_time, m.emotion?.toUpperCase(), m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-', stripEmojis(m.engagement_lbl), stripEmojis(m.satisfaction_lbl), stripEmojis(getAvisLabel(m.opinion_val))])
-    autoTable(doc, { head: [['T(s)', 'Emotion', 'Score', 'Implication', 'Satisfaction', 'Avis']], body: tableRows, startY: 95, theme: 'grid', headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' }, bodyStyles: { textColor: 50, halign: 'center' }, alternateRowStyles: { fillColor: [240, 253, 244] }, styles: { fontSize: 9, cellPadding: 3 } })
+    autoTable(doc, { head: [['T(s)', 'Emotion', 'Score', 'Compréh.', 'Satisfaction', 'Avis']], body: tableRows, startY: 95, theme: 'grid', headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' }, bodyStyles: { textColor: 50, halign: 'center' }, alternateRowStyles: { fillColor: [240, 253, 244] }, styles: { fontSize: 9, cellPadding: 3 } })
     const pageCount = doc.getNumberOfPages()
     for(let i = 1; i <= pageCount; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(150); doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI - Confidentiel`, 105, 290, { align: 'center' }) }
     doc.save(`Rapport_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
+  }
+
+  // --- NOUVEAU : EXPORTS GROUPE ---
+  const handleGroupExportCSV = () => {
+    if (!comparisonData.length) return
+    const separator = ";"
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
+    csvContent += `Nom${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Duree (s)\n`
+    comparisonData.forEach((d) => {
+        const row = [d.name, d.engagement, d.satisfaction, d.loyalty, d.duration].join(separator)
+        csvContent += row + "\n"
+    })
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_Groupe_Comparatif.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
+  }
+
+  const handleGroupExportPDF = () => {
+    if (!comparisonData.length) return
+    const doc = new jsPDF()
+    // En-tête
+    doc.setFillColor(34, 197, 94); doc.rect(0, 0, 210, 24, 'F')
+    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("STARTECH VISION", 14, 16)
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("RAPPORT COMPARATIF GROUPE", 200, 16, { align: "right" })
+    
+    // Résumé
+    doc.setTextColor(0, 0, 0); doc.setFontSize(10)
+    doc.text(`Date : ${new Date().toLocaleDateString('fr-FR')}`, 14, 35)
+    doc.text(`Nombre de profils comparés : ${comparisonData.length}`, 14, 41)
+
+    // Synthèse Moyenne
+    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 20, 2, 2, 'F')
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("MOYENNES DU GROUPE", 105, 58, { align: "center" })
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10)
+    doc.text(`Compréhension : ${groupAvgEng}%`, 25, 65); doc.text(`Satisfaction : ${groupAvgSat}%`, 100, 65)
+
+    // Tableau Comparatif
+    const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.loyalty + '%', d.duration + 's'])
+    
+    autoTable(doc, { 
+        head: [['Nom', 'Compréhension', 'Satisfaction', 'Crédibilité', 'Durée']], 
+        body: tableRows, 
+        startY: 80, 
+        theme: 'grid', 
+        headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold', halign: 'center' }, // Bleu pour le comparatif
+        bodyStyles: { textColor: 50, halign: 'center' }, 
+        alternateRowStyles: { fillColor: [239, 246, 255] }, 
+        styles: { fontSize: 10, cellPadding: 3 } 
+    })
+
+    // Footer
+    const pageCount = doc.getNumberOfPages()
+    for(let i = 1; i <= pageCount; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(150); doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI`, 105, 290, { align: 'center' }) }
+    doc.save(`Rapport_Groupe_Comparatif.pdf`)
   }
 
   // --- LOGIN VIEW ---
@@ -244,7 +299,7 @@ export default function AdminDashboard() {
                       <span className="text-xs font-bold text-slate-500 uppercase">{selectedIds.length} Sél.</span>
                   </div>
                   <div className="flex gap-1">
-                    {/* BOUTON COMPARER (Nouveau) */}
+                    {/* BOUTON COMPARER */}
                     {selectedIds.length > 1 && (
                       <Button size="sm" variant="default" onClick={handleCompare} className="h-7 text-xs px-2 bg-blue-600 hover:bg-blue-700 text-white" title="Comparer les sessions sélectionnées">
                           <PieChart className="w-3 h-3 mr-1" /> Comparer
@@ -292,17 +347,22 @@ export default function AdminDashboard() {
                     <h2 className="text-xl font-bold flex items-center gap-2 text-blue-700">
                         <Users className="w-6 h-6" /> Analyse de Groupe ({comparisonData.length} profils)
                     </h2>
-                    <Button variant="outline" size="sm" onClick={() => setComparisonMode(false)}>Fermer</Button>
+                    <div className="flex gap-2">
+                        {/* NOUVEAUX BOUTONS EXPORT GROUPE */}
+                        <Button size="sm" onClick={handleGroupExportPDF} className="bg-red-600 hover:bg-red-700 text-white gap-2 shadow-sm"><FileText className="w-4 h-4"/> PDF Groupe</Button>
+                        <Button size="sm" onClick={handleGroupExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-sm"><Download className="w-4 h-4"/> CSV Groupe</Button>
+                        <Button variant="outline" size="sm" onClick={() => setComparisonMode(false)}>Fermer</Button>
+                    </div>
                 </div>
 
-                {/* KPIS GLOBAUX DU GROUPE */}
+                {/* KPIS GLOBAUX DU GROUPE (MODIF: Label) */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Moyenne Implication</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Moyenne Compréhension</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
                     <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Moyenne Satisfaction</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
                     <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Profils Analysés</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-slate-900">{comparisonData.length}</div></CardContent></Card>
                 </div>
 
-                {/* GRAPHIQUE COMPARATIF */}
+                {/* GRAPHIQUE COMPARATIF (MODIF: Label) */}
                 <Card className="border-slate-200 shadow-sm bg-white">
                     <CardHeader><CardTitle className="text-lg flex items-center gap-2">Comparatif des Performances</CardTitle></CardHeader>
                     <CardContent className="h-[350px]">
@@ -313,14 +373,14 @@ export default function AdminDashboard() {
                                 <YAxis domain={[0, 100]} />
                                 <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '8px' }} />
                                 <Legend />
-                                <Bar dataKey="engagement" name="Implication" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="engagement" name="Compréhension" fill="#22c55e" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="satisfaction" name="Satisfaction" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </CardContent>
                 </Card>
 
-                {/* TABLEAU RÉCAPITULATIF */}
+                {/* TABLEAU RÉCAPITULATIF (MODIF: Headers) */}
                 <Card className="border-slate-200 shadow-sm bg-white">
                     <CardHeader><CardTitle className="text-sm uppercase text-slate-500">Détails par profil</CardTitle></CardHeader>
                     <div className="overflow-x-auto">
@@ -328,9 +388,9 @@ export default function AdminDashboard() {
                             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                                 <tr>
                                     <th className="px-4 py-3">Nom</th>
-                                    <th className="px-4 py-3">Implication</th>
+                                    <th className="px-4 py-3">Compréhension</th>
                                     <th className="px-4 py-3">Satisfaction</th>
-                                    <th className="px-4 py-3">Confiance</th>
+                                    <th className="px-4 py-3">Crédibilité</th>
                                     <th className="px-4 py-3">Durée</th>
                                 </tr>
                             </thead>
@@ -340,7 +400,7 @@ export default function AdminDashboard() {
                                         <td className="px-4 py-3 font-bold text-slate-700">{d.name}</td>
                                         <td className="px-4 py-3 font-bold text-green-600">{d.engagement}%</td>
                                         <td className="px-4 py-3 font-bold text-blue-600">{d.satisfaction}%</td>
-                                        <td className="px-4 py-3">{d.trust}%</td>
+                                        <td className="px-4 py-3 text-slate-600">{d.loyalty}%</td>
                                         <td className="px-4 py-3 text-slate-400">{d.duration}s</td>
                                     </tr>
                                 ))}
@@ -350,14 +410,16 @@ export default function AdminDashboard() {
                 </Card>
              </div>
           ) : selectedSession ? (
-            /* VUE INDIVIDUELLE (ANCIENNE VUE) */
+            /* VUE INDIVIDUELLE */
             <>
+              {/* MODIF: Labels Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
-                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Implication Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
+                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
 
+              {/* MODIF: Label Chart */}
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle></CardHeader>
                 <CardContent className="h-[300px]">
@@ -371,13 +433,14 @@ export default function AdminDashboard() {
                       <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px' }} />
-                      <Area type="monotone" dataKey="engagement_val" name="Implication Client" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
+                      <Area type="monotone" dataKey="engagement_val" name="Compréhension" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
                       <Area type="monotone" dataKey="satisfaction_val" name="Satisfaction" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSat)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
 
+              {/* MODIF: Headers Table */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
@@ -393,12 +456,12 @@ export default function AdminDashboard() {
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Temps</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Implication Client</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Implication</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Compréhension</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Compr.</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Satisfaction</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Satisf.</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Confiance</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-green-50/50">Fidélité</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-green-50/50">Crédibilité</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis Global</th>
                       </tr>
                     </thead>
@@ -423,7 +486,7 @@ export default function AdminDashboard() {
               </Card>
             </>
           ) : (
-            /* VUE VIDE (AUCUNE SÉLECTION) */
+            /* VUE VIDE */
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
               <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4"><User className="w-8 h-8 text-slate-300" /></div>
               <p className="text-lg font-medium">Sélectionnez une session ou cochez-en plusieurs pour comparer</p>
