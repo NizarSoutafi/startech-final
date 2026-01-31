@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target } from "lucide-react"
+import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
@@ -31,6 +31,12 @@ export default function Dashboard() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [faceCoords, setFaceCoords] = useState<any>(null)
   const [cameraActive, setCameraActive] = useState(false)
+
+  // --- NOUVEAU : ETATS POUR LE MEDIA ---
+  const [mediaFile, setMediaFile] = useState<File | null>(null)
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [mediaType, setMediaType] = useState<'video' | 'image' | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 1. Démarrer Webcam Locale
   useEffect(() => {
@@ -56,7 +62,6 @@ export default function Dashboard() {
     
     newSocket.on("metrics_update", (data: any) => {
       setSessionTime(data.session_time); 
-      // On force la mise à jour de l'état recording ici aussi
       setIsRecording(data.is_recording)
       setFaceCoords(data.face_coords)
       
@@ -91,18 +96,32 @@ export default function Dashboard() {
     return () => { clearInterval(interval); newSocket.close() }
   }, [userInfo])
 
+  // --- GESTION DU MEDIA ---
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setMediaFile(file)
+      const url = URL.createObjectURL(file)
+      setMediaUrl(url)
+      
+      if (file.type.startsWith('video/')) setMediaType('video')
+      else if (file.type.startsWith('image/')) setMediaType('image')
+      else setMediaType(null)
+    }
+  }
+
   const handleLogin = (e: React.FormEvent) => { e.preventDefault(); if (formData.firstName && formData.lastName) setUserInfo(formData) }
   
   const handleStartStop = () => { 
       if (socket && userInfo) { 
           if (isRecording) {
               socket.emit("stop_session")
-              setIsRecording(false) // Optimistic update
+              setIsRecording(false) 
           } else {
               setSessionTime(0)
               setHistory([])
               socket.emit("start_session", userInfo)
-              setIsRecording(true) // Optimistic update
+              setIsRecording(true) 
           }
       } 
   }
@@ -149,28 +168,26 @@ export default function Dashboard() {
            </div>
         </div>
       </header>
-      <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-hidden flex flex-col gap-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full min-h-[600px]">
-          <div className="lg:col-span-7 flex flex-col h-full">
-            <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden transition-all duration-500 flex-1 flex flex-col group">
-              {/* ELEMENTS DECORATIFS (Anti-Crash: on utilise l'opacité au lieu de supprimer l'élément) */}
+      <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto flex flex-col gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
+          
+          {/* COLONNE GAUCHE (Caméra + Lecteur Média) */}
+          <div className="lg:col-span-7 flex flex-col gap-6">
+            
+            {/* 1. WEBCAM & STATUT */}
+            <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none group h-[500px]">
               <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
               <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
               <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
               <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
               
-              {/* BARRE DE SCAN (Toujours là, mais invisible si pas recording) */}
               <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-[0_0_20px_#22c55e] z-10 animate-[scan_3s_ease-in-out_infinite] transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} style={{ top: '0%' }} />
-              
-              {/* BARRE ROUGE (Toujours là, mais invisible si pas recording) */}
               <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
 
-              <CardContent className="p-0 flex-1 relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
+              <CardContent className="p-0 h-full relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
                 <canvas ref={canvasRef} width="480" height="360" className="hidden" />
                 <div className="absolute inset-0 w-full h-full relative">
                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                    
-                    {/* CADRE VISAGE (Sécurisé) */}
                     <div 
                         className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear shadow-[0_0_15px_#22c55e] ${faceCoords ? 'opacity-100' : 'opacity-0'}`} 
                         style={{ 
@@ -183,14 +200,13 @@ export default function Dashboard() {
                     >
                          <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
                     </div>
-
-                    <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-10 bg-[length:100%_4px,6px_100%] pointer-events-none" />
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30"><Target className="w-64 h-64 text-white stroke-1" /></div>
+                
+                {/* INTERFACE BASSE */}
                 <div className="z-20 w-full px-8 pb-8 mt-auto absolute bottom-0">
                   <div className="flex justify-between items-end mb-8">
                     <div>
-                       {/* BADGE (Sécurisé avec supressHydrationWarning pour éviter les bugs de traduction) */}
                        <div className="flex items-center gap-2 mb-2">
                            <Badge variant="outline" className={`px-3 py-1 border-none backdrop-blur-md ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}>
                                <div className={`w-2 h-2 rounded-full mr-2 ${isRecording ? "bg-white" : "bg-slate-300"}`} />
@@ -208,8 +224,6 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center justify-center gap-8 pt-6 border-t border-white/20">
                     <Button size="icon" variant="outline" onClick={handleReset} className="h-14 w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all"><RotateCcw className="h-5 w-5" /></Button>
-                    
-                    {/* BOUTON DEMARRER/STOP (Affichage conditionnel simplifié) */}
                     <Button 
                         onClick={handleStartStop} 
                         variant={isRecording ? "destructive" : "default"}
@@ -222,7 +236,44 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* 2. ZONE TESTEUR PUBLICITAIRE (NOUVEAU) */}
+            <Card className="border-slate-200 bg-white shadow-md flex flex-col">
+              <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2">
+                    <Film className="w-4 h-4 text-green-600" /> Support Publicitaire
+                  </CardTitle>
+                </div>
+                <div>
+                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*" className="hidden" />
+                   <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="text-xs h-8 gap-2">
+                      <Upload className="w-3 h-3" /> Charger Média
+                   </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 flex items-center justify-center bg-slate-100 min-h-[300px] relative">
+                  {mediaUrl ? (
+                      mediaType === 'video' ? (
+                          <video src={mediaUrl} controls className="w-full max-h-[400px] rounded shadow-sm" />
+                      ) : (
+                          <img src={mediaUrl} alt="Support pub" className="w-full max-h-[400px] object-contain rounded shadow-sm" />
+                      )
+                  ) : (
+                      <div className="text-center text-slate-400">
+                          <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3">
+                              <ImageIcon className="w-8 h-8 text-slate-300" />
+                          </div>
+                          <p className="text-sm font-medium">Aucun média chargé</p>
+                          <p className="text-xs mt-1">Chargez une vidéo ou une image pour tester la réaction</p>
+                      </div>
+                  )}
+              </CardContent>
+            </Card>
+
           </div>
+
+          {/* COLONNE DROITE (Métriques) */}
           <div className="lg:col-span-5 flex flex-col h-full gap-4">
             <MetricsPanel metrics={currentMetrics} />
             <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm flex justify-between items-center text-xs font-mono text-slate-500 mt-auto">
@@ -230,6 +281,7 @@ export default function Dashboard() {
                <span className={isConnected ? "text-green-600 font-bold bg-green-50 px-2 py-1 rounded" : "text-red-500 bg-red-50 px-2 py-1 rounded"}>{isConnected ? "ONLINE" : "OFFLINE"}</span>
             </div>
           </div>
+
         </div>
       </main>
       <style jsx global>{` @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } } `}</style>
