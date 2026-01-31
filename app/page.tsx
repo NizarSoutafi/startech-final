@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon } from "lucide-react"
+import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon, FileText } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
@@ -32,10 +32,10 @@ export default function Dashboard() {
   const [faceCoords, setFaceCoords] = useState<any>(null)
   const [cameraActive, setCameraActive] = useState(false)
 
-  // --- NOUVEAU : ETATS POUR LE MEDIA ---
+  // --- ETATS POUR LE MEDIA (PDF/IMAGE/VIDEO) ---
   const [mediaFile, setMediaFile] = useState<File | null>(null)
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
-  const [mediaType, setMediaType] = useState<'video' | 'image' | null>(null)
+  const [mediaType, setMediaType] = useState<'video' | 'image' | 'pdf' | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 1. Démarrer Webcam Locale
@@ -96,7 +96,7 @@ export default function Dashboard() {
     return () => { clearInterval(interval); newSocket.close() }
   }, [userInfo])
 
-  // --- GESTION DU MEDIA ---
+  // --- GESTION DU MEDIA (UPDATE PDF) ---
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -104,9 +104,11 @@ export default function Dashboard() {
       const url = URL.createObjectURL(file)
       setMediaUrl(url)
       
+      // Détection intelligente du type
       if (file.type.startsWith('video/')) setMediaType('video')
       else if (file.type.startsWith('image/')) setMediaType('image')
-      else setMediaType(null)
+      else if (file.type === 'application/pdf') setMediaType('pdf')
+      else setMediaType(null) // Fallback
     }
   }
 
@@ -171,10 +173,10 @@ export default function Dashboard() {
       <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto flex flex-col gap-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
           
-          {/* COLONNE GAUCHE (Caméra + Lecteur Média) */}
+          {/* COLONNE GAUCHE */}
           <div className="lg:col-span-7 flex flex-col gap-6">
             
-            {/* 1. WEBCAM & STATUT */}
+            {/* 1. WEBCAM */}
             <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none group h-[500px]">
               <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
               <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
@@ -203,7 +205,6 @@ export default function Dashboard() {
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30"><Target className="w-64 h-64 text-white stroke-1" /></div>
                 
-                {/* INTERFACE BASSE */}
                 <div className="z-20 w-full px-8 pb-8 mt-auto absolute bottom-0">
                   <div className="flex justify-between items-end mb-8">
                     <div>
@@ -237,35 +238,41 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* 2. ZONE TESTEUR PUBLICITAIRE (NOUVEAU) */}
+            {/* 2. ZONE TESTEUR PUBLICITAIRE MULTI-FORMAT (PDF INCLUS) */}
             <Card className="border-slate-200 bg-white shadow-md flex flex-col">
               <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2">
-                    <Film className="w-4 h-4 text-green-600" /> Support Publicitaire
+                    <FileText className="w-4 h-4 text-green-600" /> Support Documentaire
                   </CardTitle>
                 </div>
                 <div>
-                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*" className="hidden" />
+                   {/* accept= Ajout PDF */}
+                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*,application/pdf" className="hidden" />
                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="text-xs h-8 gap-2">
-                      <Upload className="w-3 h-3" /> Charger Média
+                      <Upload className="w-3 h-3" /> Charger Fichier
                    </Button>
                 </div>
               </CardHeader>
-              <CardContent className="p-4 flex items-center justify-center bg-slate-100 min-h-[300px] relative">
+              <CardContent className="p-4 flex items-center justify-center bg-slate-100 min-h-[400px] relative">
                   {mediaUrl ? (
                       mediaType === 'video' ? (
-                          <video src={mediaUrl} controls className="w-full max-h-[400px] rounded shadow-sm" />
+                          <video src={mediaUrl} controls className="w-full max-h-[500px] rounded shadow-sm" />
+                      ) : mediaType === 'image' ? (
+                          <img src={mediaUrl} alt="Support pub" className="w-full max-h-[500px] object-contain rounded shadow-sm" />
+                      ) : mediaType === 'pdf' ? (
+                          // LECTEUR PDF IFRAME
+                          <iframe src={mediaUrl} className="w-full h-[600px] rounded border border-slate-200 bg-white" title="PDF Viewer" />
                       ) : (
-                          <img src={mediaUrl} alt="Support pub" className="w-full max-h-[400px] object-contain rounded shadow-sm" />
+                          <div className="text-center text-red-500">Format non supporté pour l'affichage direct</div>
                       )
                   ) : (
                       <div className="text-center text-slate-400">
                           <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3">
-                              <ImageIcon className="w-8 h-8 text-slate-300" />
+                              <FileText className="w-8 h-8 text-slate-300" />
                           </div>
-                          <p className="text-sm font-medium">Aucun média chargé</p>
-                          <p className="text-xs mt-1">Chargez une vidéo ou une image pour tester la réaction</p>
+                          <p className="text-sm font-medium">Aucun document chargé</p>
+                          <p className="text-xs mt-1">Chargez une Vidéo, Image ou PDF</p>
                       </div>
                   )}
               </CardContent>
