@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon, FileText } from "lucide-react"
+// J'ai ajouté les icones manquantes ici (Music, FileSpreadsheet, etc.)
+import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon, FileText, Music, FileSpreadsheet, File } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
@@ -32,10 +33,11 @@ export default function Dashboard() {
   const [faceCoords, setFaceCoords] = useState<any>(null)
   const [cameraActive, setCameraActive] = useState(false)
 
-  // --- ETATS POUR LE MEDIA (PDF/IMAGE/VIDEO) ---
+  // --- ETATS POUR LE MEDIA UNIVERSEL ---
   const [mediaFile, setMediaFile] = useState<File | null>(null)
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
-  const [mediaType, setMediaType] = useState<'video' | 'image' | 'pdf' | null>(null)
+  const [mediaType, setMediaType] = useState<'video' | 'image' | 'pdf' | 'audio' | 'csv' | 'excel' | 'other' | null>(null)
+  const [csvContent, setCsvContent] = useState<string[][]>([]) // Pour afficher le tableau CSV
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 1. Démarrer Webcam Locale
@@ -96,7 +98,7 @@ export default function Dashboard() {
     return () => { clearInterval(interval); newSocket.close() }
   }, [userInfo])
 
-  // --- GESTION DU MEDIA (UPDATE PDF) ---
+  // --- GESTION INTELLIGENTE DES FICHIERS ---
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -104,11 +106,31 @@ export default function Dashboard() {
       const url = URL.createObjectURL(file)
       setMediaUrl(url)
       
-      // Détection intelligente du type
-      if (file.type.startsWith('video/')) setMediaType('video')
-      else if (file.type.startsWith('image/')) setMediaType('image')
-      else if (file.type === 'application/pdf') setMediaType('pdf')
-      else setMediaType(null) // Fallback
+      // Réinitialiser le contenu CSV
+      setCsvContent([])
+
+      // Détection du type
+      const type = file.type
+      const name = file.name.toLowerCase()
+
+      if (type.startsWith('video/')) setMediaType('video')
+      else if (type.startsWith('image/')) setMediaType('image')
+      else if (type.startsWith('audio/')) setMediaType('audio')
+      else if (type === 'application/pdf') setMediaType('pdf')
+      else if (name.endsWith('.csv')) {
+          setMediaType('csv')
+          // Lecture du CSV pour affichage
+          const reader = new FileReader()
+          reader.onload = (event) => {
+              const text = event.target?.result as string
+              // Parsing simple: Lignes puis virgules (ou point-virgules)
+              const rows = text.split('\n').slice(0, 10).map(row => row.split(/[;,]/)) // On garde max 10 lignes pour l'aperçu
+              setCsvContent(rows)
+          }
+          reader.readAsText(file)
+      }
+      else if (name.endsWith('.xlsx') || name.endsWith('.xls')) setMediaType('excel')
+      else setMediaType('other')
     }
   }
 
@@ -238,41 +260,96 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* 2. ZONE TESTEUR PUBLICITAIRE MULTI-FORMAT (PDF INCLUS) */}
+            {/* 2. ZONE TESTEUR MULTIMÉDIA UNIVERSEL */}
             <Card className="border-slate-200 bg-white shadow-md flex flex-col">
               <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-green-600" /> Support Documentaire
+                    <FileText className="w-4 h-4 text-green-600" /> Support de Test
                   </CardTitle>
                 </div>
                 <div>
-                   {/* accept= Ajout PDF */}
-                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*,application/pdf" className="hidden" />
+                   {/* accept= Tous les formats demandés */}
+                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*,audio/*,application/pdf,.csv,.xlsx,.xls" className="hidden" />
                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="text-xs h-8 gap-2">
-                      <Upload className="w-3 h-3" /> Charger Fichier
+                      <Upload className="w-3 h-3" /> Charger Média
                    </Button>
                 </div>
               </CardHeader>
               <CardContent className="p-4 flex items-center justify-center bg-slate-100 min-h-[400px] relative">
                   {mediaUrl ? (
+                      // 1. VIDEO
                       mediaType === 'video' ? (
                           <video src={mediaUrl} controls className="w-full max-h-[500px] rounded shadow-sm" />
-                      ) : mediaType === 'image' ? (
+                      ) 
+                      // 2. IMAGE
+                      : mediaType === 'image' ? (
                           <img src={mediaUrl} alt="Support pub" className="w-full max-h-[500px] object-contain rounded shadow-sm" />
-                      ) : mediaType === 'pdf' ? (
-                          // LECTEUR PDF IFRAME
+                      ) 
+                      // 3. AUDIO (Nouveau)
+                      : mediaType === 'audio' ? (
+                          <div className="w-full max-w-md bg-white p-6 rounded-xl shadow-lg border border-slate-200 text-center">
+                              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                                  <Music className="w-10 h-10 text-green-600" />
+                              </div>
+                              <h3 className="text-lg font-bold text-slate-800 mb-2">{mediaFile?.name}</h3>
+                              <p className="text-xs text-slate-500 mb-6">Fichier Audio chargé - Le sujet écoute</p>
+                              <audio src={mediaUrl} controls className="w-full" />
+                          </div>
+                      )
+                      // 4. PDF
+                      : mediaType === 'pdf' ? (
                           <iframe src={mediaUrl} className="w-full h-[600px] rounded border border-slate-200 bg-white" title="PDF Viewer" />
-                      ) : (
-                          <div className="text-center text-red-500">Format non supporté pour l'affichage direct</div>
+                      )
+                      // 5. CSV (Tableau Automatique)
+                      : mediaType === 'csv' ? (
+                          <div className="w-full bg-white rounded border border-slate-200 overflow-hidden flex flex-col max-h-[500px]">
+                              <div className="p-2 bg-slate-50 border-b border-slate-100 font-mono text-xs font-bold text-slate-500 flex gap-2 items-center">
+                                  <FileSpreadsheet className="w-4 h-4 text-green-600"/> APERÇU DES DONNÉES CSV
+                              </div>
+                              <div className="overflow-auto p-0">
+                                  <table className="w-full text-xs text-left">
+                                      <tbody>
+                                          {csvContent.map((row, i) => (
+                                              <tr key={i} className={i===0 ? "bg-slate-100 font-bold" : "border-b border-slate-50 hover:bg-slate-50"}>
+                                                  {row.map((cell, j) => (
+                                                      <td key={j} className="p-2 border-r border-slate-100 truncate max-w-[150px]">{cell}</td>
+                                                  ))}
+                                              </tr>
+                                          ))}
+                                      </tbody>
+                                  </table>
+                              </div>
+                          </div>
+                      )
+                      // 6. EXCEL (Carte Info)
+                      : mediaType === 'excel' ? (
+                          <div className="text-center p-8 bg-white rounded-xl shadow-sm border border-slate-200 max-w-sm">
+                               <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                  <FileSpreadsheet className="w-10 h-10 text-green-600" />
+                               </div>
+                               <h3 className="text-lg font-bold text-slate-800 mb-2">Fichier Excel Chargé</h3>
+                               <p className="text-sm text-slate-500 bg-slate-50 p-2 rounded border border-slate-100 mb-4 break-all font-mono">{mediaFile?.name}</p>
+                               <div className="text-xs text-amber-600 bg-amber-50 p-3 rounded">
+                                   Note : L'affichage natif des cellules Excel est limité par le navigateur. Le fichier est bien pris en compte pour le test.
+                               </div>
+                          </div>
+                      )
+                      // 7. AUTRE
+                      : (
+                          <div className="text-center p-8">
+                               <File className="w-12 h-12 text-slate-300 mx-auto mb-2"/>
+                               <p className="text-slate-600 font-bold">{mediaFile?.name}</p>
+                               <p className="text-xs text-slate-400">Type de fichier non prévisualisable</p>
+                          </div>
                       )
                   ) : (
                       <div className="text-center text-slate-400">
                           <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3">
-                              <FileText className="w-8 h-8 text-slate-300" />
+                              <Upload className="w-8 h-8 text-slate-300" />
                           </div>
-                          <p className="text-sm font-medium">Aucun document chargé</p>
-                          <p className="text-xs mt-1">Chargez une Vidéo, Image ou PDF</p>
+                          <p className="text-sm font-medium">Glissez un fichier ici</p>
+                          <p className="text-xs mt-1">Vidéo, Audio, Image, PDF, Excel ou CSV</p>
                       </div>
                   )}
               </CardContent>
