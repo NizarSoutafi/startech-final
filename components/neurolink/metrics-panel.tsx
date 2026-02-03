@@ -79,7 +79,7 @@ export default function MetricsPanel({ metrics }: MetricsPanelProps) {
       {/* 4. NOUVEAU : CALL TO ACTION (CONVERSION) */}
       <Card className="border-2 border-slate-200 bg-slate-50">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-bold text-slate-800 uppercase">Potentiel Achat</CardTitle>
+          <CardTitle className="text-sm font-bold text-slate-800 uppercase">Conviction</CardTitle>
           <ShoppingCart className={`h-5 w-5 ${getCTAColor(metrics.conversion || 0)}`} />
         </CardHeader>
         <CardContent>
