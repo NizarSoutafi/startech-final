@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@supabase/supabase-js"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+// CORRECTION ICI : Ajout de CardFooter et CardDescription
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -39,7 +40,7 @@ export default function AdminDashboard() {
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [comparisonMode, setComparisonMode] = useState(false) 
   const [comparisonData, setComparisonData] = useState<any[]>([]) 
-  const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A") // AJOUT: State Emotion
+  const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A")
   const [isComparing, setIsComparing] = useState(false)
 
   // 1. Vérifier la session
@@ -157,7 +158,7 @@ export default function AdminDashboard() {
         }
       })
 
-      // 2. Calcul Emotion Dominante (AJOUT)
+      // 2. Calcul Emotion Dominante
       const emotionCounts: Record<string, number> = {}
       results.forEach((res: any) => {
           const measures = res.data || []
@@ -244,12 +245,11 @@ export default function AdminDashboard() {
     doc.save(`Rapport_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
   }
 
-  // --- EXPORTS GROUPE (AVEC EMOTION DOMINANTE AJOUTÉE) ---
+  // --- EXPORTS GROUPE (AVEC EMOTION DOMINANTE) ---
   const handleGroupExportCSV = () => {
     if (!comparisonData.length) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-    // AJOUT: Ligne Emotion Dominante
     csvContent += `EMOTION DOMINANTE DU GROUPE : ${stripEmojis(groupDominantEmotion)}\n\n`
     csvContent += `Nom${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Duree (s)\n`
     comparisonData.forEach((d) => {
@@ -273,7 +273,7 @@ export default function AdminDashboard() {
     doc.text(`Date : ${new Date().toLocaleDateString('fr-FR')}`, 14, 35)
     doc.text(`Nombre de profils comparés : ${comparisonData.length}`, 14, 41)
 
-    // Synthèse Moyenne & EMOTION (AJOUT)
+    // Synthèse Moyenne & EMOTION
     doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 25, 2, 2, 'F')
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DU GROUPE", 105, 58, { align: "center" })
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
@@ -388,7 +388,7 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* KPIS GLOBAUX DU GROUPE + EMOTION DOMINANTE (AJOUT) */}
+                {/* KPIS GLOBAUX DU GROUPE + EMOTION DOMINANTE */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
                     <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
@@ -447,14 +447,12 @@ export default function AdminDashboard() {
           ) : selectedSession ? (
             /* VUE INDIVIDUELLE */
             <>
-              {/* Labels Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
 
-              {/* Chart */}
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle></CardHeader>
                 <CardContent className="h-[300px]">
@@ -475,7 +473,6 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
 
-              {/* Table */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
