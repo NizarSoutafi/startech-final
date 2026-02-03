@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@supabase/supabase-js"
-// CORRECTION ICI : Ajout de CardFooter et CardDescription
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
 import jsPDF from "jspdf"
@@ -42,6 +41,14 @@ export default function AdminDashboard() {
   const [comparisonData, setComparisonData] = useState<any[]>([]) 
   const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A")
   const [isComparing, setIsComparing] = useState(false)
+
+  // --- FORMULE SCIENTIFIQUE (Recalcul Côté Admin) ---
+  const calculateCTA = (engagement: number, satisfaction: number) => {
+      // Si satisfaction faible (<45), le potentiel d'achat s'effondre
+      if (satisfaction < 45) return engagement * 0.1
+      // Sinon formule : 40% Engagement + 60% Satisfaction
+      return (engagement * 0.4) + (satisfaction * 0.6)
+  }
 
   // 1. Vérifier la session
   useEffect(() => {
@@ -147,13 +154,17 @@ export default function AdminDashboard() {
         const avgTrust = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.trust_val, 0) / measures.length : 0
         const avgLoyalty = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.loyalty_val, 0) / measures.length : 0
         
+        // Recalcul du CTA
+        const avgCTA = calculateCTA(avgEng, avgSat)
+
         return {
           name: `${res.info.first_name} ${res.info.last_name}`,
           id: res.info.id,
-          engagement: Math.round(avgEng),   // Compréhension
+          engagement: Math.round(avgEng),   
           satisfaction: Math.round(avgSat),
           trust: Math.round(avgTrust),
-          loyalty: Math.round(avgLoyalty),  // Crédibilité
+          loyalty: Math.round(avgLoyalty),
+          conversion: Math.round(avgCTA), // Nouveau
           duration: measures.length
         }
       })
@@ -201,21 +212,27 @@ export default function AdminDashboard() {
   // Calculs pour Single View
   const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
   const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
+  // Nouveau calcul pour single view
+  const avgCTA = Math.round(calculateCTA(avgEngagement, avgSatisfaction))
 
   // Calculs pour Multi View
   const groupAvgEng = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.engagement, 0) / comparisonData.length) : 0
   const groupAvgSat = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.satisfaction, 0) / comparisonData.length) : 0
+  const groupAvgCTA = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conversion, 0) / comparisonData.length) : 0
 
   // --- EXPORTS INDIVIDUELS ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Label Comprehension${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Credibilite${separator}Avis Global\n`
+    // Header mis à jour avec Potentiel Achat
+    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Label Comprehension${separator}Satisfaction${separator}Label Satisfaction${separator}Potentiel Achat${separator}Avis Global\n`
     measurements.forEach((m) => {
         const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
         const avis = getAvisLabel(m.opinion_val)
-        const row = [m.session_time, m.emotion, score, Math.round(m.engagement_val), m.engagement_lbl, Math.round(m.satisfaction_val), m.satisfaction_lbl, Math.round(m.trust_val), Math.round(m.loyalty_val), avis].join(separator)
+        // Calcul CTA ligne par ligne
+        const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
+        const row = [m.session_time, m.emotion, score, Math.round(m.engagement_val), m.engagement_lbl, Math.round(m.satisfaction_val), m.satisfaction_lbl, cta, avis].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
@@ -233,27 +250,47 @@ export default function AdminDashboard() {
     doc.text(`ID Projet : ${selectedSession.client_id || "N/A"}`, 14, 41)
     doc.text(`Date : ${formatDate(selectedSession.created_at)}`, 14, 47)
     doc.text(`Durée : ${measurements.length} secondes`, 14, 53)
+    
+    // Résumé
     doc.setFillColor(245, 245, 245); doc.roundedRect(14, 60, 182, 25, 2, 2, 'F')
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DE LA SESSION", 105, 68, { align: "center" })
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
-    const lastAvisClean = stripEmojis(measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A")
-    doc.text(`Compréhension Moy. : ${avgEngagement}%`, 25, 78); doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 90, 78); doc.text(`Tendance : ${lastAvisClean}`, 155, 78)
-    const tableRows = measurements.map(m => [m.session_time, m.emotion?.toUpperCase(), m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-', stripEmojis(m.engagement_lbl), stripEmojis(m.satisfaction_lbl), stripEmojis(getAvisLabel(m.opinion_val))])
-    autoTable(doc, { head: [['T(s)', 'Emotion', 'Score', 'Compréh.', 'Satisfaction', 'Avis']], body: tableRows, startY: 95, theme: 'grid', headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' }, bodyStyles: { textColor: 50, halign: 'center' }, alternateRowStyles: { fillColor: [240, 253, 244] }, styles: { fontSize: 9, cellPadding: 3 } })
-    const pageCount = doc.getNumberOfPages()
-    for(let i = 1; i <= pageCount; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(150); doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI - Confidentiel`, 105, 290, { align: 'center' }) }
+    doc.text(`Compréhension : ${avgEngagement}%`, 25, 78)
+    doc.text(`Satisfaction : ${avgSatisfaction}%`, 80, 78)
+    // Ajout Potentiel Achat dans le header
+    doc.setTextColor(220, 38, 38); // Rouge/Orange pour le CTA
+    doc.setFont("helvetica", "bold");
+    doc.text(`Potentiel Achat : ${avgCTA}%`, 135, 78)
+    doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "normal");
+
+    const tableRows = measurements.map(m => {
+        const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
+        return [m.session_time, m.emotion?.toUpperCase(), m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-', stripEmojis(m.engagement_lbl), stripEmojis(m.satisfaction_lbl), cta + '%']
+    })
+    
+    autoTable(doc, { 
+        head: [['T(s)', 'Emotion', 'Score', 'Compréh.', 'Satisfaction', 'Pot. Achat']], 
+        body: tableRows, 
+        startY: 95, 
+        theme: 'grid', 
+        headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' }, 
+        bodyStyles: { textColor: 50, halign: 'center' }, 
+        alternateRowStyles: { fillColor: [240, 253, 244] }, 
+        styles: { fontSize: 9, cellPadding: 3 } 
+    })
     doc.save(`Rapport_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
   }
 
-  // --- EXPORTS GROUPE (AVEC EMOTION DOMINANTE) ---
+  // --- EXPORTS GROUPE ---
   const handleGroupExportCSV = () => {
     if (!comparisonData.length) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-    csvContent += `EMOTION DOMINANTE DU GROUPE : ${stripEmojis(groupDominantEmotion)}\n\n`
-    csvContent += `Nom${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Duree (s)\n`
+    csvContent += `EMOTION DOMINANTE DU GROUPE : ${stripEmojis(groupDominantEmotion)}\n`
+    csvContent += `MOYENNE POTENTIEL ACHAT GROUPE : ${groupAvgCTA}%\n\n`
+    csvContent += `Nom${separator}Comprehension${separator}Satisfaction${separator}Potentiel Achat${separator}Duree (s)\n`
     comparisonData.forEach((d) => {
-        const row = [d.name, d.engagement, d.satisfaction, d.loyalty, d.duration].join(separator)
+        const row = [d.name, d.engagement, d.satisfaction, d.conversion, d.duration].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
@@ -279,16 +316,18 @@ export default function AdminDashboard() {
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
     doc.text(`Compréhension : ${groupAvgEng}%`, 25, 68); doc.text(`Satisfaction : ${groupAvgSat}%`, 80, 68)
     
-    // Ajout visuel Emotion
+    // Ajout visuel Emotion & CTA
     doc.setFont("helvetica", "bold"); doc.setTextColor(22, 163, 74) 
-    doc.text(`Émotion Dominante : ${stripEmojis(groupDominantEmotion)}`, 130, 68)
+    doc.text(`Émotion : ${stripEmojis(groupDominantEmotion)}`, 135, 65)
+    doc.setTextColor(220, 38, 38); // Rouge
+    doc.text(`Potentiel Achat : ${groupAvgCTA}%`, 135, 72)
     doc.setTextColor(0, 0, 0)
 
     // Tableau Comparatif
-    const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.loyalty + '%', d.duration + 's'])
+    const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.conversion + '%', d.duration + 's'])
     
     autoTable(doc, { 
-        head: [['Nom', 'Compréhension', 'Satisfaction', 'Crédibilité', 'Durée']], 
+        head: [['Nom', 'Compréhension', 'Satisfaction', 'Pot. Achat', 'Durée']], 
         body: tableRows, 
         startY: 85, 
         theme: 'grid', 
@@ -297,10 +336,6 @@ export default function AdminDashboard() {
         alternateRowStyles: { fillColor: [239, 246, 255] }, 
         styles: { fontSize: 10, cellPadding: 3 } 
     })
-
-    // Footer
-    const pageCount = doc.getNumberOfPages()
-    for(let i = 1; i <= pageCount; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(150); doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI`, 105, 290, { align: 'center' }) }
     doc.save(`Rapport_Groupe_Comparatif.pdf`)
   }
 
@@ -392,9 +427,11 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
                     <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
-                    {/* CARTE EMOTION DOMINANTE */}
+                    
+                    {/* NOUVEAU: MOYENNE POTENTIEL ACHAT GROUPE */}
+                    <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Potentiel Achat</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-orange-800">{groupAvgCTA}%</div></CardContent></Card>
+                    
                     <Card className="bg-green-50 border-green-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-green-600 uppercase flex items-center gap-1"><Smile className="w-3 h-3"/> Émotion Groupe</CardTitle></CardHeader><CardContent><div className="text-xl font-bold text-green-800 break-words leading-tight">{groupDominantEmotion}</div></CardContent></Card>
-                    <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Profils Analysés</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-slate-900">{comparisonData.length}</div></CardContent></Card>
                 </div>
 
                 {/* GRAPHIQUE COMPARATIF */}
@@ -410,6 +447,8 @@ export default function AdminDashboard() {
                                 <Legend />
                                 <Bar dataKey="engagement" name="Compréhension" fill="#22c55e" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="satisfaction" name="Satisfaction" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                {/* Ajout barre CTA optionnel ou laisser simple */}
+                                <Bar dataKey="conversion" name="Potentiel Achat" fill="#f97316" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </CardContent>
@@ -425,7 +464,7 @@ export default function AdminDashboard() {
                                     <th className="px-4 py-3">Nom</th>
                                     <th className="px-4 py-3">Compréhension</th>
                                     <th className="px-4 py-3">Satisfaction</th>
-                                    <th className="px-4 py-3">Crédibilité</th>
+                                    <th className="px-4 py-3 text-orange-600">Potentiel Achat</th>
                                     <th className="px-4 py-3">Durée</th>
                                 </tr>
                             </thead>
@@ -435,7 +474,7 @@ export default function AdminDashboard() {
                                         <td className="px-4 py-3 font-bold text-slate-700">{d.name}</td>
                                         <td className="px-4 py-3 font-bold text-green-600">{d.engagement}%</td>
                                         <td className="px-4 py-3 font-bold text-blue-600">{d.satisfaction}%</td>
-                                        <td className="px-4 py-3 text-slate-600">{d.loyalty}%</td>
+                                        <td className="px-4 py-3 font-bold text-orange-600">{d.conversion}%</td>
                                         <td className="px-4 py-3 text-slate-400">{d.duration}s</td>
                                     </tr>
                                 ))}
@@ -447,10 +486,13 @@ export default function AdminDashboard() {
           ) : selectedSession ? (
             /* VUE INDIVIDUELLE */
             <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
+                
+                {/* NOUVEAU : CARTE POTENTIEL ACHAT */}
+                <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Potentiel Achat</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-orange-700">{avgCTA}%</div></CardContent></Card>
               </div>
 
               <Card className="border-slate-200 shadow-sm bg-white">
@@ -492,13 +534,16 @@ export default function AdminDashboard() {
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Label Compr.</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Label Satisf.</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Confiance</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-green-50/50">Crédibilité</th>
+                        {/* NOUVEAU COLONNE TABLEAU */}
+                        <th className="px-4 py-3 font-bold whitespace-nowrap text-orange-600">Potentiel Achat</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis Global</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {measurements.map((m, i) => (
+                      {measurements.map((m, i) => {
+                        // Recalcul live pour l'affichage
+                        const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
+                        return (
                         <tr key={i} className="hover:bg-slate-50 transition-colors">
                           <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
                           <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
@@ -507,11 +552,10 @@ export default function AdminDashboard() {
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.engagement_lbl}</td>
                           <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
                           <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.satisfaction_lbl}</td>
-                          <td className="px-4 py-3 font-bold text-slate-700">{Math.round(m.trust_val)}%</td>
-                          <td className="px-4 py-3 font-bold text-green-700 bg-green-50/30">{Math.round(m.loyalty_val)}%</td>
+                          <td className="px-4 py-3 font-bold text-orange-600 bg-orange-50/30">{cta}%</td>
                           <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
