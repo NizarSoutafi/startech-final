@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart } from "lucide-react"
 import Link from "next/link"
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell } from 'recharts'
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 
@@ -19,6 +19,22 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://gwjrwejdjp
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3anJ3ZWpkanBjdGl6b2xma2N6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTA5ODEyNCwiZXhwIjoyMDg0Njc0MTI0fQ.EjU1DGTN-jrdkaC6nJWilFtYZgtu-NKjnfiMVMnHal0"
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+// Couleurs pour les émotions
+const EMOTION_COLORS: any = {
+  happy: "#22c55e",    // Vert
+  surprise: "#eab308", // Jaune
+  neutral: "#94a3b8",  // Gris
+  sad: "#3b82f6",      // Bleu
+  fear: "#a855f7",     // Violet
+  angry: "#ef4444",    // Rouge
+  disgust: "#10b981"   // Emeraude
+}
+
+const EMOTION_LABELS: any = {
+  happy: "Joie", surprise: "Surprise", neutral: "Neutre",
+  sad: "Tristesse", fear: "Peur", angry: "Colère", disgust: "Dégoût"
+}
 
 export default function AdminDashboard() {
   // --- STATES AUTH ---
@@ -40,13 +56,12 @@ export default function AdminDashboard() {
   const [comparisonMode, setComparisonMode] = useState(false) 
   const [comparisonData, setComparisonData] = useState<any[]>([]) 
   const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A")
+  const [emotionDistribution, setEmotionDistribution] = useState<any[]>([]) // NOUVEAU
   const [isComparing, setIsComparing] = useState(false)
 
   // --- FORMULE SCIENTIFIQUE (Recalcul Côté Admin) ---
   const calculateCTA = (engagement: number, satisfaction: number) => {
-      // Si satisfaction faible (<45), le potentiel d'achat s'effondre
       if (satisfaction < 45) return engagement * 0.1
-      // Sinon formule : 40% Engagement + 60% Satisfaction
       return (engagement * 0.4) + (satisfaction * 0.6)
   }
 
@@ -134,7 +149,7 @@ export default function AdminDashboard() {
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  // --- LOGIQUE DE COMPARAISON ---
+  // --- LOGIQUE DE COMPARAISON & EMOTION DISTRIBUTION ---
   const handleCompare = async () => {
     if (selectedIds.length < 2) return
     setIsComparing(true)
@@ -146,15 +161,13 @@ export default function AdminDashboard() {
       const promises = selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`).then(res => res.json()))
       const results = await Promise.all(promises)
 
-      // 1. Calcul Stats
+      // 1. Calcul Stats individuelles
       const stats = results.map((res: any) => {
         const measures = res.data || []
         const avgEng = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.engagement_val, 0) / measures.length : 0
         const avgSat = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.satisfaction_val, 0) / measures.length : 0
         const avgTrust = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.trust_val, 0) / measures.length : 0
         const avgLoyalty = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.loyalty_val, 0) / measures.length : 0
-        
-        // Recalcul du CTA
         const avgCTA = calculateCTA(avgEng, avgSat)
 
         return {
@@ -164,37 +177,42 @@ export default function AdminDashboard() {
           satisfaction: Math.round(avgSat),
           trust: Math.round(avgTrust),
           loyalty: Math.round(avgLoyalty),
-          conversion: Math.round(avgCTA), // Nouveau
+          conversion: Math.round(avgCTA), 
           duration: measures.length
         }
       })
 
-      // 2. Calcul Emotion Dominante
+      // 2. Calcul Répartition Émotionnelle (Pie Chart Data)
       const emotionCounts: Record<string, number> = {}
+      let totalEmotions = 0
+
       results.forEach((res: any) => {
           const measures = res.data || []
           measures.forEach((m: any) => {
               if (m.emotion) {
                   const emo = m.emotion.toLowerCase()
                   emotionCounts[emo] = (emotionCounts[emo] || 0) + 1
+                  totalEmotions++
               }
           })
       })
 
-      let maxEmo = "Neutre"
-      let maxCount = 0
-      Object.entries(emotionCounts).forEach(([emo, count]) => {
-          if (count > maxCount) {
-              maxCount = count
-              maxEmo = emo
-          }
-      })
-      
-      const emotionMap: any = { 
-          happy: "JOIE 😃", sad: "TRISTESSE 😢", angry: "COLÈRE 😡", 
-          surprise: "SURPRISE 😲", fear: "PEUR 😨", neutral: "NEUTRE 😐", disgust: "DÉGOÛT 🤢" 
+      // Transformer en format pour le graphique
+      const distributionData = Object.entries(emotionCounts).map(([key, count]) => ({
+          name: EMOTION_LABELS[key] || key,
+          value: count,
+          percent: Math.round((count / totalEmotions) * 100),
+          fill: EMOTION_COLORS[key] || "#000"
+      })).sort((a, b) => b.value - a.value) // Trier du plus grand au plus petit
+
+      setEmotionDistribution(distributionData)
+
+      // Trouver la dominante
+      if (distributionData.length > 0) {
+          setGroupDominantEmotion(distributionData[0].name.toUpperCase())
+      } else {
+          setGroupDominantEmotion("N/A")
       }
-      setGroupDominantEmotion(emotionMap[maxEmo] || maxEmo.toUpperCase())
 
       setComparisonData(stats)
     } catch (error) {
@@ -209,92 +227,66 @@ export default function AdminDashboard() {
   const formatDate = (dateString: string) => new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   const stripEmojis = (str: string) => str.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '').trim()
 
-  // Calculs pour Single View
   const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
   const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
-  // Nouveau calcul pour single view
   const avgCTA = Math.round(calculateCTA(avgEngagement, avgSatisfaction))
 
-  // Calculs pour Multi View
   const groupAvgEng = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.engagement, 0) / comparisonData.length) : 0
   const groupAvgSat = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.satisfaction, 0) / comparisonData.length) : 0
   const groupAvgCTA = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conversion, 0) / comparisonData.length) : 0
 
-  // --- EXPORTS INDIVIDUELS ---
+  // --- EXPORTS ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    // Header mis à jour avec Potentiel Achat
-    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Label Comprehension${separator}Satisfaction${separator}Label Satisfaction${separator}Potentiel Achat${separator}Avis Global\n`
+    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Satisfaction${separator}Potentiel Achat${separator}Avis Global\n`
     measurements.forEach((m) => {
-        const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
-        const avis = getAvisLabel(m.opinion_val)
-        // Calcul CTA ligne par ligne
         const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
-        const row = [m.session_time, m.emotion, score, Math.round(m.engagement_val), m.engagement_lbl, Math.round(m.satisfaction_val), m.satisfaction_lbl, cta, avis].join(separator)
+        const row = [m.session_time, m.emotion, m.emotion_score, Math.round(m.engagement_val), Math.round(m.satisfaction_val), cta, getAvisLabel(m.opinion_val)].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
-    const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_${selectedSession.first_name}_${selectedSession.last_name}.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
+    const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_${selectedSession.first_name}.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
 
   const handleExportPDF = () => {
     if (!measurements.length || !selectedSession) return
     const doc = new jsPDF()
-    doc.setFillColor(34, 197, 94); doc.rect(0, 0, 210, 24, 'F')
-    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("STARTECH VISION", 14, 16)
-    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("RAPPORT D'ANALYSE BIOMÉTRIQUE", 200, 16, { align: "right" })
-    doc.setTextColor(0, 0, 0); doc.setFontSize(10)
-    doc.text(`Client : ${selectedSession.first_name} ${selectedSession.last_name}`, 14, 35)
-    doc.text(`ID Projet : ${selectedSession.client_id || "N/A"}`, 14, 41)
-    doc.text(`Date : ${formatDate(selectedSession.created_at)}`, 14, 47)
-    doc.text(`Durée : ${measurements.length} secondes`, 14, 53)
-    
-    // Résumé
-    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 60, 182, 25, 2, 2, 'F')
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DE LA SESSION", 105, 68, { align: "center" })
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10)
-    doc.text(`Compréhension : ${avgEngagement}%`, 25, 78)
-    doc.text(`Satisfaction : ${avgSatisfaction}%`, 80, 78)
-    // Ajout Potentiel Achat dans le header
-    doc.setTextColor(220, 38, 38); // Rouge/Orange pour le CTA
-    doc.setFont("helvetica", "bold");
-    doc.text(`Potentiel Achat : ${avgCTA}%`, 135, 78)
-    doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "normal");
-
-    const tableRows = measurements.map(m => {
-        const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
-        return [m.session_time, m.emotion?.toUpperCase(), m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-', stripEmojis(m.engagement_lbl), stripEmojis(m.satisfaction_lbl), cta + '%']
-    })
-    
+    doc.text(`Rapport: ${selectedSession.first_name}`, 14, 20)
     autoTable(doc, { 
-        head: [['T(s)', 'Emotion', 'Score', 'Compréh.', 'Satisfaction', 'Pot. Achat']], 
-        body: tableRows, 
-        startY: 95, 
-        theme: 'grid', 
-        headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' }, 
-        bodyStyles: { textColor: 50, halign: 'center' }, 
-        alternateRowStyles: { fillColor: [240, 253, 244] }, 
-        styles: { fontSize: 9, cellPadding: 3 } 
+        head: [['T(s)', 'Emotion', 'Compr.', 'Satis.', 'CTA']], 
+        body: measurements.map(m => [m.session_time, m.emotion, Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))]), 
+        startY: 30 
     })
-    doc.save(`Rapport_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
+    doc.save(`Rapport_${selectedSession.first_name}.pdf`)
   }
 
-  // --- EXPORTS GROUPE ---
+  // --- EXPORTS GROUPE COMPLET ---
   const handleGroupExportCSV = () => {
     if (!comparisonData.length) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-    csvContent += `EMOTION DOMINANTE DU GROUPE : ${stripEmojis(groupDominantEmotion)}\n`
-    csvContent += `MOYENNE POTENTIEL ACHAT GROUPE : ${groupAvgCTA}%\n\n`
-    csvContent += `Nom${separator}Comprehension${separator}Satisfaction${separator}Potentiel Achat${separator}Duree (s)\n`
+    
+    // Section 1 : Résumé
+    csvContent += `EMOTION DOMINANTE : ${stripEmojis(groupDominantEmotion)}\n`
+    csvContent += `MOYENNE POTENTIEL ACHAT : ${groupAvgCTA}%\n\n`
+    
+    // Section 2 : Répartition Emotionnelle
+    csvContent += `REPARTITION EMOTIONNELLE\nEmotion${separator}Pourcentage\n`
+    emotionDistribution.forEach(e => {
+        csvContent += `${e.name}${separator}${e.percent}%\n`
+    })
+    csvContent += "\n"
+
+    // Section 3 : Détails Profils
+    csvContent += `DETAILS PROFILS\nNom${separator}Comprehension${separator}Satisfaction${separator}Potentiel Achat${separator}Duree (s)\n`
     comparisonData.forEach((d) => {
         const row = [d.name, d.engagement, d.satisfaction, d.conversion, d.duration].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
-    const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_Groupe_Comparatif.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
+    const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_Groupe_Complet.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
 
   const handleGroupExportPDF = () => {
@@ -303,40 +295,52 @@ export default function AdminDashboard() {
     // En-tête
     doc.setFillColor(34, 197, 94); doc.rect(0, 0, 210, 24, 'F')
     doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("STARTECH VISION", 14, 16)
-    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("RAPPORT COMPARATIF GROUPE", 200, 16, { align: "right" })
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("ANALYSE DE GROUPE", 200, 16, { align: "right" })
     
     // Résumé
     doc.setTextColor(0, 0, 0); doc.setFontSize(10)
     doc.text(`Date : ${new Date().toLocaleDateString('fr-FR')}`, 14, 35)
-    doc.text(`Nombre de profils comparés : ${comparisonData.length}`, 14, 41)
+    doc.text(`Nombre de profils : ${comparisonData.length}`, 14, 41)
 
-    // Synthèse Moyenne & EMOTION
-    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 25, 2, 2, 'F')
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DU GROUPE", 105, 58, { align: "center" })
+    // Synthèse Moyenne
+    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 30, 2, 2, 'F')
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE GLOBALE", 105, 58, { align: "center" })
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
     doc.text(`Compréhension : ${groupAvgEng}%`, 25, 68); doc.text(`Satisfaction : ${groupAvgSat}%`, 80, 68)
     
-    // Ajout visuel Emotion & CTA
     doc.setFont("helvetica", "bold"); doc.setTextColor(22, 163, 74) 
-    doc.text(`Émotion : ${stripEmojis(groupDominantEmotion)}`, 135, 65)
-    doc.setTextColor(220, 38, 38); // Rouge
+    doc.text(`Dominante : ${stripEmojis(groupDominantEmotion)}`, 135, 65)
+    doc.setTextColor(220, 38, 38); 
     doc.text(`Potentiel Achat : ${groupAvgCTA}%`, 135, 72)
     doc.setTextColor(0, 0, 0)
 
-    // Tableau Comparatif
+    // Tableau Répartition Emotionnelle
+    doc.setFontSize(11); doc.text("Répartition Émotionnelle", 14, 95)
+    const emoRows = emotionDistribution.map(e => [e.name, e.percent + '%', e.value + ' occurences'])
+    autoTable(doc, { 
+        head: [['Emotion', 'Pourcentage', 'Volume']], 
+        body: emoRows, 
+        startY: 100, 
+        theme: 'striped',
+        headStyles: { fillColor: [100, 116, 139] }
+    })
+
+    // Tableau Comparatif Profils (Suite)
+    const finalY = (doc as any).lastAutoTable.finalY + 15
+    doc.text("Détails par Profil", 14, finalY - 5)
+    
     const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.conversion + '%', d.duration + 's'])
     
     autoTable(doc, { 
         head: [['Nom', 'Compréhension', 'Satisfaction', 'Pot. Achat', 'Durée']], 
         body: tableRows, 
-        startY: 85, 
+        startY: finalY, 
         theme: 'grid', 
         headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold', halign: 'center' }, 
         bodyStyles: { textColor: 50, halign: 'center' }, 
-        alternateRowStyles: { fillColor: [239, 246, 255] }, 
-        styles: { fontSize: 10, cellPadding: 3 } 
+        alternateRowStyles: { fillColor: [239, 246, 255] } 
     })
-    doc.save(`Rapport_Groupe_Comparatif.pdf`)
+    doc.save(`Rapport_Groupe_Complet.pdf`)
   }
 
   // --- LOGIN VIEW ---
@@ -416,28 +420,66 @@ export default function AdminDashboard() {
                         <Users className="w-6 h-6" /> Analyse de Groupe ({comparisonData.length} profils)
                     </h2>
                     <div className="flex gap-2">
-                        {/* BOUTONS EXPORT GROUPE */}
                         <Button size="sm" onClick={handleGroupExportPDF} className="bg-red-600 hover:bg-red-700 text-white gap-2 shadow-sm"><FileText className="w-4 h-4"/> PDF Groupe</Button>
                         <Button size="sm" onClick={handleGroupExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-sm"><Download className="w-4 h-4"/> CSV Groupe</Button>
                         <Button variant="outline" size="sm" onClick={() => setComparisonMode(false)}>Fermer</Button>
                     </div>
                 </div>
 
-                {/* KPIS GLOBAUX DU GROUPE + EMOTION DOMINANTE */}
+                {/* KPIS GLOBAUX */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
-                    
-                    {/* NOUVEAU: MOYENNE POTENTIEL ACHAT GROUPE */}
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Compréhension</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
                     <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Potentiel Achat</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-orange-800">{groupAvgCTA}%</div></CardContent></Card>
-                    
-                    <Card className="bg-green-50 border-green-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-green-600 uppercase flex items-center gap-1"><Smile className="w-3 h-3"/> Émotion Groupe</CardTitle></CardHeader><CardContent><div className="text-xl font-bold text-green-800 break-words leading-tight">{groupDominantEmotion}</div></CardContent></Card>
+                    <Card className="bg-green-50 border-green-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-green-600 uppercase flex items-center gap-1"><Smile className="w-3 h-3"/> Emotion Leader</CardTitle></CardHeader><CardContent><div className="text-xl font-bold text-green-800 break-words leading-tight">{groupDominantEmotion}</div></CardContent></Card>
+                </div>
+
+                {/* SECTION ANALYSE EMOTIONNELLE DETAILLEE (NOUVEAU) */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* CAMEMBERT */}
+                    <Card className="lg:col-span-1 border-slate-200 shadow-sm bg-white">
+                         <CardHeader><CardTitle className="text-sm uppercase text-slate-500">Répartition Émotionnelle</CardTitle></CardHeader>
+                         <CardContent className="h-[250px] flex items-center justify-center">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <RePieChart>
+                                    <Pie data={emotionDistribution} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={2} dataKey="value">
+                                        {emotionDistribution.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}
+                                    </Pie>
+                                    <Tooltip />
+                                </RePieChart>
+                            </ResponsiveContainer>
+                         </CardContent>
+                    </Card>
+
+                    {/* DETAILS POURCENTAGES */}
+                    <Card className="lg:col-span-2 border-slate-200 shadow-sm bg-white">
+                         <CardHeader><CardTitle className="text-sm uppercase text-slate-500">Détail des Emotions du Groupe</CardTitle></CardHeader>
+                         <CardContent className="overflow-y-auto h-[250px]">
+                            <div className="space-y-4">
+                                {emotionDistribution.map((item, i) => (
+                                    <div key={i} className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.fill }}></div>
+                                            <span className="text-sm font-medium text-slate-700">{item.name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-4 w-1/2">
+                                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                                <div className="h-full" style={{ width: `${item.percent}%`, backgroundColor: item.fill }}></div>
+                                            </div>
+                                            <span className="text-sm font-bold text-slate-900 w-12 text-right">{item.percent}%</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {emotionDistribution.length === 0 && <p className="text-sm text-slate-400 italic">Aucune donnée émotionnelle disponible.</p>}
+                            </div>
+                         </CardContent>
+                    </Card>
                 </div>
 
                 {/* GRAPHIQUE COMPARATIF */}
                 <Card className="border-slate-200 shadow-sm bg-white">
-                    <CardHeader><CardTitle className="text-lg flex items-center gap-2">Comparatif des Performances</CardTitle></CardHeader>
-                    <CardContent className="h-[350px]">
+                    <CardHeader><CardTitle className="text-lg flex items-center gap-2">Comparatif des Profils</CardTitle></CardHeader>
+                    <CardContent className="h-[300px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={comparisonData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -447,40 +489,10 @@ export default function AdminDashboard() {
                                 <Legend />
                                 <Bar dataKey="engagement" name="Compréhension" fill="#22c55e" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="satisfaction" name="Satisfaction" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                                {/* Ajout barre CTA optionnel ou laisser simple */}
                                 <Bar dataKey="conversion" name="Potentiel Achat" fill="#f97316" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </CardContent>
-                </Card>
-
-                {/* TABLEAU RÉCAPITULATIF */}
-                <Card className="border-slate-200 shadow-sm bg-white">
-                    <CardHeader><CardTitle className="text-sm uppercase text-slate-500">Détails par profil</CardTitle></CardHeader>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                                <tr>
-                                    <th className="px-4 py-3">Nom</th>
-                                    <th className="px-4 py-3">Compréhension</th>
-                                    <th className="px-4 py-3">Satisfaction</th>
-                                    <th className="px-4 py-3 text-orange-600">Potentiel Achat</th>
-                                    <th className="px-4 py-3">Durée</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {comparisonData.map((d, i) => (
-                                    <tr key={i} className="hover:bg-slate-50">
-                                        <td className="px-4 py-3 font-bold text-slate-700">{d.name}</td>
-                                        <td className="px-4 py-3 font-bold text-green-600">{d.engagement}%</td>
-                                        <td className="px-4 py-3 font-bold text-blue-600">{d.satisfaction}%</td>
-                                        <td className="px-4 py-3 font-bold text-orange-600">{d.conversion}%</td>
-                                        <td className="px-4 py-3 text-slate-400">{d.duration}s</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
                 </Card>
              </div>
           ) : selectedSession ? (
@@ -490,8 +502,6 @@ export default function AdminDashboard() {
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
-                
-                {/* NOUVEAU : CARTE POTENTIEL ACHAT */}
                 <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Potentiel Achat</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-orange-700">{avgCTA}%</div></CardContent></Card>
               </div>
 
@@ -534,14 +544,12 @@ export default function AdminDashboard() {
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Label Compr.</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Label Satisf.</th>
-                        {/* NOUVEAU COLONNE TABLEAU */}
                         <th className="px-4 py-3 font-bold whitespace-nowrap text-orange-600">Potentiel Achat</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis Global</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {measurements.map((m, i) => {
-                        // Recalcul live pour l'affichage
                         const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
                         return (
                         <tr key={i} className="hover:bg-slate-50 transition-colors">
@@ -562,7 +570,6 @@ export default function AdminDashboard() {
               </Card>
             </>
           ) : (
-            /* VUE VIDE */
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
               <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4"><User className="w-8 h-8 text-slate-300" /></div>
               <p className="text-lg font-medium">Sélectionnez une session ou cochez-en plusieurs pour comparer</p>
