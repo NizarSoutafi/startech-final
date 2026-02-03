@@ -8,45 +8,49 @@ import base64
 import cv2
 import numpy as np
 import random
-from datetime import datetime
+import time
 from deepface import DeepFace
 from supabase import create_client, Client
 
-# --- CONFIGURATION SUPABASE ---
+# --- 1. SETUP SUPABASE ---
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gwjrwejdjpctizolfkcz.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3anJ3ZWpkanBjdGl6b2xma2N6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTA5ODEyNCwiZXhwIjoyMDg0Njc0MTI0fQ.EjU1DGTN-jrdkaC6nJWilFtYZgtu-NKjnfiMVMnHal0")
 
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    print("☁️ Connecté à Supabase")
+    print("☁️ SUPABASE CONNECTÉ")
 except Exception as e:
-    print(f"❌ Erreur Supabase : {e}")
+    print(f"❌ ERREUR SUPABASE: {e}")
 
-# --- CONFIGURATION SERVEUR (CORS FIXED) ---
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+# --- 2. CONFIG SOCKET ---
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins='*',
+    ping_timeout=60,
+    max_http_buffer_size=10000000
+)
 
 app = FastAPI()
-app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=["*"], 
-    allow_credentials=True, 
-    allow_methods=["*"], 
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 socket_app = socketio.ASGIApp(sio, app)
 
-# --- API REST ---
+# --- 3. API ADMIN ---
 @app.get("/api/sessions")
 def get_sessions():
-    response = supabase.table('sessions').select("*").order('id', desc=True).execute()
-    return response.data
+    try:
+        response = supabase.table('sessions').select("*").order('id', desc=True).execute()
+        return response.data
+    except: return []
 
 @app.get("/api/sessions/{session_id}")
 def get_session_details(session_id: int):
-    sess = supabase.table('sessions').select("*").eq('id', session_id).execute()
-    if not sess.data: raise HTTPException(status_code=404, detail="Session introuvable")
-    meas = supabase.table('measurements').select("*").eq('session_id', session_id).order('session_time', desc=False).execute()
-    return {"info": sess.data[0], "data": meas.data}
+    try:
+        sess = supabase.table('sessions').select("*").eq('id', session_id).execute()
+        if not sess.data: raise HTTPException(status_code=404, detail="Session introuvable")
+        meas = supabase.table('measurements').select("*").eq('session_id', session_id).order('session_time', desc=False).execute()
+        return {"info": sess.data[0], "data": meas.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/sessions/{session_id}")
 def delete_session(session_id: int):
@@ -56,117 +60,153 @@ def delete_session(session_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- LOGIQUE MÉTIER ---
-def calculate_kpis(emotion):
-    valence = 0.0; arousal = 0.0; noise = random.uniform(-0.05, 0.05)
-    if emotion == "happy": valence = 0.8 + noise; arousal = 0.6 + noise
-    elif emotion == "surprise": valence = 0.2 + noise; arousal = 0.9 + noise
-    elif emotion in ["fear", "angry"]: valence = -0.7 + noise; arousal = 0.8 + noise
-    elif emotion == "disgust": valence = -0.8 + noise; arousal = 0.5 + noise
-    elif emotion == "sad": valence = -0.6 + noise; arousal = 0.2 + noise
-    else: valence = 0.0 + noise; arousal = 0.3 + noise
+# --- 4. GESTION DES SESSIONS & STATE ---
+sessions = {}
 
-    def clamp(n): return max(0, min(100, int(n)))
-    val_eng = clamp((arousal * 100) + random.uniform(0, 5))
-    val_sat = clamp(((valence + 1) / 2) * 100)
-    val_tru = clamp(50 + (valence * 40) + random.uniform(0, 5)) if valence > 0 else clamp(50 - (abs(valence) * 40) + random.uniform(0, 5))
-    val_loy = clamp((val_sat * 0.7) + (val_tru * 0.3))
-    val_opi = val_sat
+# --- FONCTION DE STABILISATION (SMOOTHING) ---
+SMOOTHING_FACTOR = 0.5 
+camera_state = { "prev_coords": None }
 
-    if val_eng >= 75: lbl_eng = "Engagement Fort 🔥"
-    elif val_eng >= 40: lbl_eng = "Engagement Moyen"
-    else: lbl_eng = "Désengagement 💤"
+def smooth_coordinates(new_coords, prev_coords):
+    if prev_coords is None: return new_coords
+    try:
+        return {
+            'x': int(SMOOTHING_FACTOR * new_coords['x'] + (1 - SMOOTHING_FACTOR) * prev_coords['x']),
+            'y': int(SMOOTHING_FACTOR * new_coords['y'] + (1 - SMOOTHING_FACTOR) * prev_coords['y']),
+            'w': int(SMOOTHING_FACTOR * new_coords['w'] + (1 - SMOOTHING_FACTOR) * prev_coords['w']),
+            'h': int(SMOOTHING_FACTOR * new_coords['h'] + (1 - SMOOTHING_FACTOR) * prev_coords['h'])
+        }
+    except: return new_coords
 
-    if val_sat >= 70: lbl_sat = "Très Satisfait 😃"
-    elif val_sat >= 45: lbl_sat = "Neutre 😐"
-    else: lbl_sat = "Insatisfait 😡"
-    
-    return {
-        "engagement": val_eng, "satisfaction": val_sat, "trust": val_tru, "loyalty": val_loy, "opinion": val_opi,
-        "lbl_eng": lbl_eng, "lbl_sat": lbl_sat
+@sio.event
+async def connect(sid, environ):
+    print(f"✅ Client: {sid}")
+    sessions[sid] = {
+        "active": False,
+        "start_time": 0,
+        "db_id": None,
+        "last_save_time": 0
     }
 
-# --- GESTION WEBSOCKET ---
-camera_state = { "emotion": "neutral", "emotion_score": 0, "face_coords": None }
-active_sessions = {}
-
 @sio.event
-async def process_frame(sid, data_uri):
-    try:
-        encoded_data = data_uri.split(',')[1]
-        nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        result = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False, silent=True)
-        data = result[0] if isinstance(result, list) else result
-        
-        camera_state["emotion"] = data['dominant_emotion']
-        camera_state["emotion_score"] = data['emotion'][data['dominant_emotion']]
-        
-        region = data['region']
-        if region['w'] > 0:
-            camera_state["face_coords"] = {'x': region['x'], 'y': region['y'], 'w': region['w'], 'h': region['h']}
-        else:
-            camera_state["face_coords"] = None
-    except:
-        camera_state["face_coords"] = None
-
-async def session_manager_loop():
-    while True:
-        for sid, user_data in list(active_sessions.items()):
-            kpis = calculate_kpis(camera_state["emotion"])
-            
-            if user_data["is_recording"]:
-                user_data["session_time"] += 1
-                if user_data["db_id"]:
-                    try:
-                        data_to_insert = {
-                            "session_id": user_data["db_id"],
-                            "session_time": user_data["session_time"],
-                            "emotion": camera_state["emotion"],
-                            "emotion_score": camera_state["emotion_score"],
-                            "engagement_val": kpis["engagement"], "engagement_lbl": kpis["lbl_eng"],
-                            "satisfaction_val": kpis["satisfaction"], "satisfaction_lbl": kpis["lbl_sat"],
-                            "trust_val": kpis["trust"], "loyalty_val": kpis["loyalty"], "opinion_val": kpis["opinion"]
-                        }
-                        supabase.table('measurements').insert(data_to_insert).execute()
-                    except Exception as e: print(f"DB Error: {e}")
-
-            await sio.emit('metrics_update', {
-                "emotion": camera_state["emotion"], "metrics": kpis, 
-                "face_coords": camera_state["face_coords"], 
-                "session_time": user_data["session_time"], 
-                "is_recording": user_data["is_recording"]
-            }, room=sid)
-        await asyncio.sleep(1)
-
-@sio.event
-async def connect(sid, environ): 
-    print(f"Client connecté: {sid}")
-    active_sessions[sid] = { "is_recording": False, "session_time": 0, "db_id": None }
-
-@sio.event
-async def disconnect(sid): 
-    if sid in active_sessions: del active_sessions[sid]
+async def disconnect(sid):
+    if sid in sessions: del sessions[sid]
 
 @sio.event
 async def start_session(sid, data):
-    user_session = active_sessions.get(sid)
-    if user_session:
-        user_session["is_recording"] = True
-        user_session["session_time"] = 0
+    print(f"▶️ START: {sid}")
+    if sid in sessions:
+        sessions[sid]["active"] = True
+        sessions[sid]["start_time"] = time.time()
+        sessions[sid]["last_save_time"] = 0
+        
         try:
-            new_session = { "first_name": data.get('firstName'), "last_name": data.get('lastName'), "client_id": data.get('clientId') }
+            new_session = {
+                "first_name": data.get('firstName', 'Inconnu'),
+                "last_name": data.get('lastName', ''),
+                "client_id": data.get('clientId', '')
+            }
             res = supabase.table('sessions').insert(new_session).execute()
-            user_session["db_id"] = res.data[0]['id']
-        except Exception as e: print(f"Start Session Error: {e}")
+            sessions[sid]["db_id"] = res.data[0]['id']
+            print(f"💾 Session ID {sessions[sid]['db_id']} créée.")
+        except Exception as e:
+            print(f"⚠️ Erreur Création Session: {e}")
 
 @sio.event
 async def stop_session(sid):
-    if sid in active_sessions: active_sessions[sid]["is_recording"] = False
+    print(f"⏹️ STOP: {sid}")
+    if sid in sessions: sessions[sid]["active"] = False
+
+@sio.event
+async def process_frame(sid, data_uri):
+    if sid not in sessions: return
+
+    try:
+        # A. Décodage
+        encoded_data = data_uri.split(',')[1]
+        nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # B. Analyse IA
+        result = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False, silent=True)
+        data = result[0] if isinstance(result, list) else result
+
+        emotion = data['dominant_emotion']
+        emotion_score = data['emotion'][emotion]
+
+        # C. Coordonnées & Lissage (Fix Jitter)
+        region = data['region']
+        img_h, img_w, _ = frame.shape
+        face_coords = None
+
+        # Filtre simple : on ignore si c'est toute l'image ou vide
+        if region['w'] > 0 and not (region['w'] == img_w and region['h'] == img_h):
+            raw_coords = {'x': region['x'], 'y': region['y'], 'w': region['w'], 'h': region['h']}
+            face_coords = smooth_coordinates(raw_coords, camera_state["prev_coords"])
+            camera_state["prev_coords"] = face_coords
+        else:
+             # On garde la dernière position connue un instant si perte de tracking
+             face_coords = camera_state["prev_coords"]
+
+        # D. Calcul KPIs
+        current_time = 0
+        if sessions[sid]["active"]:
+            current_time = int(time.time() - sessions[sid]["start_time"])
+
+        # Algorithme Métriques
+        valence = 0.8 if emotion == "happy" else (-0.6 if emotion in ["sad", "angry", "fear"] else 0.0)
+        arousal = 0.8 if emotion in ["angry", "fear", "surprise"] else 0.3
+
+        def clamp(n): return max(0, min(100, int(n)))
+
+        val_eng = clamp((arousal * 100) + random.uniform(0, 10))
+        val_sat = clamp(((valence + 1) / 2) * 100)
+        val_tru = clamp(50 + (valence * 20))
+        val_loy = clamp(50 + (valence * 10))
+        val_opi = clamp(((valence + 1) / 2) * 100)
+
+        lbl_eng = "Fort 🔥" if val_eng > 60 else ("Moyen" if val_eng > 30 else "Faible 💤")
+        lbl_sat = "Positif 😃" if val_sat > 60 else ("Négatif 😡" if val_sat < 40 else "Neutre 😐")
+
+        metrics = {
+            "engagement": val_eng, "satisfaction": val_sat, "trust": val_tru, "loyalty": val_loy, "opinion": val_opi
+        }
+
+        # E. Envoi au Frontend
+        payload = {
+            "emotion": emotion,
+            "face_coords": face_coords,
+            "metrics": metrics,
+            "session_time": current_time,
+            "is_recording": sessions[sid]["active"]
+        }
+        await sio.emit('metrics_update', payload, room=sid)
+
+        # F. Sauvegarde DB
+        now = time.time()
+        if sessions[sid]["active"] and sessions[sid]["db_id"]:
+            if now - sessions[sid]["last_save_time"] >= 1.0:
+                sessions[sid]["last_save_time"] = now
+                row_data = {
+                    "session_id": sessions[sid]["db_id"],
+                    "session_time": current_time,
+                    "emotion": emotion,
+                    "emotion_score": float(emotion_score),
+                    "engagement_val": val_eng, "engagement_lbl": lbl_eng,
+                    "satisfaction_val": val_sat, "satisfaction_lbl": lbl_sat,
+                    "trust_val": val_tru, "loyalty_val": val_loy, "opinion_val": val_opi
+                }
+                try:
+                    supabase.table('measurements').insert(row_data).execute()
+                except Exception as db_err:
+                    print(f"⚠️ Erreur Insert: {db_err}")
+
+    except Exception:
+        pass # Anti-crash global
 
 if __name__ == "__main__":
-    @app.on_event("startup")
-    async def startup_event():
-        asyncio.create_task(session_manager_loop())
+    try:
+        DeepFace.build_model("Emotion")
+        print("✅ Modèle chargé !")
+    except: pass
     uvicorn.run(socket_app, host="0.0.0.0", port=7860)
