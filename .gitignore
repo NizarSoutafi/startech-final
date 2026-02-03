@@ -33,3 +33,4 @@ startech.db
 .env.test.local
 .env.production.local
 .DS_Store
+.env*.local

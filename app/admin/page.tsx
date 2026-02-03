@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@supabase/supabase-js"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
 import jsPDF from "jspdf"
@@ -39,6 +39,7 @@ export default function AdminDashboard() {
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [comparisonMode, setComparisonMode] = useState(false) 
   const [comparisonData, setComparisonData] = useState<any[]>([]) 
+  const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A") // NOUVEAU STATE
   const [isComparing, setIsComparing] = useState(false)
 
   // 1. Vérifier la session
@@ -125,7 +126,7 @@ export default function AdminDashboard() {
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  // --- LOGIQUE DE COMPARAISON ---
+  // --- LOGIQUE DE COMPARAISON & EMOTION DOMINANTE ---
   const handleCompare = async () => {
     if (selectedIds.length < 2) return
     setIsComparing(true)
@@ -137,6 +138,7 @@ export default function AdminDashboard() {
       const promises = selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`).then(res => res.json()))
       const results = await Promise.all(promises)
 
+      // 1. Calcul des Stats par personne
       const stats = results.map((res: any) => {
         const measures = res.data || []
         const avgEng = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.engagement_val, 0) / measures.length : 0
@@ -147,15 +149,46 @@ export default function AdminDashboard() {
         return {
           name: `${res.info.first_name} ${res.info.last_name}`,
           id: res.info.id,
-          engagement: Math.round(avgEng),   // Compréhension
+          engagement: Math.round(avgEng),   
           satisfaction: Math.round(avgSat),
           trust: Math.round(avgTrust),
-          loyalty: Math.round(avgLoyalty),  // Crédibilité
+          loyalty: Math.round(avgLoyalty),  
           duration: measures.length
         }
       })
 
+      // 2. Calcul de l'Emotion Dominante du GROUPE
+      const emotionCounts: Record<string, number> = {}
+      
+      results.forEach((res: any) => {
+          const measures = res.data || []
+          measures.forEach((m: any) => {
+              if (m.emotion) {
+                  const emo = m.emotion.toLowerCase()
+                  emotionCounts[emo] = (emotionCounts[emo] || 0) + 1
+              }
+          })
+      })
+
+      // Trouver le max
+      let maxEmo = "Neutre"
+      let maxCount = 0
+      Object.entries(emotionCounts).forEach(([emo, count]) => {
+          if (count > maxCount) {
+              maxCount = count
+              maxEmo = emo
+          }
+      })
+      
+      // Traduction simple
+      const emotionMap: any = { 
+          happy: "JOIE 😃", sad: "TRISTESSE 😢", angry: "COLÈRE 😡", 
+          surprise: "SURPRISE 😲", fear: "PEUR 😨", neutral: "NEUTRE 😐", disgust: "DÉGOÛT 🤢" 
+      }
+      
+      setGroupDominantEmotion(emotionMap[maxEmo] || maxEmo.toUpperCase())
       setComparisonData(stats)
+
     } catch (error) {
       console.error("Erreur comparaison", error)
     } finally {
@@ -181,7 +214,6 @@ export default function AdminDashboard() {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    // MODIF: Changement des headers
     csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Label Comprehension${separator}Satisfaction${separator}Label Satisfaction${separator}Confiance${separator}Credibilite${separator}Avis Global\n`
     measurements.forEach((m) => {
         const score = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '0,00'
@@ -208,9 +240,7 @@ export default function AdminDashboard() {
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DE LA SESSION", 105, 68, { align: "center" })
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
     const lastAvisClean = stripEmojis(measurements.length > 0 ? getAvisLabel(measurements[measurements.length - 1].opinion_val) : "N/A")
-    // MODIF: Changement des labels
     doc.text(`Compréhension Moy. : ${avgEngagement}%`, 25, 78); doc.text(`Satisfaction Moy. : ${avgSatisfaction}%`, 90, 78); doc.text(`Tendance : ${lastAvisClean}`, 155, 78)
-    // MODIF: Changement des headers table
     const tableRows = measurements.map(m => [m.session_time, m.emotion?.toUpperCase(), m.emotion_score ? Number(m.emotion_score).toFixed(1) + '%' : '-', stripEmojis(m.engagement_lbl), stripEmojis(m.satisfaction_lbl), stripEmojis(getAvisLabel(m.opinion_val))])
     autoTable(doc, { head: [['T(s)', 'Emotion', 'Score', 'Compréh.', 'Satisfaction', 'Avis']], body: tableRows, startY: 95, theme: 'grid', headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold', halign: 'center' }, bodyStyles: { textColor: 50, halign: 'center' }, alternateRowStyles: { fillColor: [240, 253, 244] }, styles: { fontSize: 9, cellPadding: 3 } })
     const pageCount = doc.getNumberOfPages()
@@ -218,11 +248,13 @@ export default function AdminDashboard() {
     doc.save(`Rapport_${selectedSession.first_name}_${selectedSession.last_name}.pdf`)
   }
 
-  // --- NOUVEAU : EXPORTS GROUPE ---
+  // --- EXPORTS GROUPE (AVEC EMOTION DOMINANTE) ---
   const handleGroupExportCSV = () => {
     if (!comparisonData.length) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
+    // Ajout Emotion dans le header CSV
+    csvContent += `EMOTION DOMINANTE DU GROUPE : ${stripEmojis(groupDominantEmotion)}\n\n`
     csvContent += `Nom${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Duree (s)\n`
     comparisonData.forEach((d) => {
         const row = [d.name, d.engagement, d.satisfaction, d.loyalty, d.duration].join(separator)
@@ -245,11 +277,16 @@ export default function AdminDashboard() {
     doc.text(`Date : ${new Date().toLocaleDateString('fr-FR')}`, 14, 35)
     doc.text(`Nombre de profils comparés : ${comparisonData.length}`, 14, 41)
 
-    // Synthèse Moyenne
-    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 20, 2, 2, 'F')
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("MOYENNES DU GROUPE", 105, 58, { align: "center" })
+    // Synthèse Moyenne & EMOTION
+    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 25, 2, 2, 'F')
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE DU GROUPE", 105, 58, { align: "center" })
     doc.setFont("helvetica", "normal"); doc.setFontSize(10)
-    doc.text(`Compréhension : ${groupAvgEng}%`, 25, 65); doc.text(`Satisfaction : ${groupAvgSat}%`, 100, 65)
+    
+    doc.text(`Compréhension : ${groupAvgEng}%`, 25, 68)
+    doc.text(`Satisfaction : ${groupAvgSat}%`, 80, 68)
+    doc.setFont("helvetica", "bold"); doc.setTextColor(22, 163, 74) // Vert pour l'émotion
+    doc.text(`Émotion Dominante : ${stripEmojis(groupDominantEmotion)}`, 130, 68)
+    doc.setTextColor(0, 0, 0)
 
     // Tableau Comparatif
     const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.loyalty + '%', d.duration + 's'])
@@ -257,15 +294,14 @@ export default function AdminDashboard() {
     autoTable(doc, { 
         head: [['Nom', 'Compréhension', 'Satisfaction', 'Crédibilité', 'Durée']], 
         body: tableRows, 
-        startY: 80, 
+        startY: 85, 
         theme: 'grid', 
-        headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold', halign: 'center' }, // Bleu pour le comparatif
+        headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold', halign: 'center' }, 
         bodyStyles: { textColor: 50, halign: 'center' }, 
         alternateRowStyles: { fillColor: [239, 246, 255] }, 
         styles: { fontSize: 10, cellPadding: 3 } 
     })
 
-    // Footer
     const pageCount = doc.getNumberOfPages()
     for(let i = 1; i <= pageCount; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(150); doc.text(`Page ${i} sur ${pageCount} - Généré par Startech Vision AI`, 105, 290, { align: 'center' }) }
     doc.save(`Rapport_Groupe_Comparatif.pdf`)
@@ -348,21 +384,23 @@ export default function AdminDashboard() {
                         <Users className="w-6 h-6" /> Analyse de Groupe ({comparisonData.length} profils)
                     </h2>
                     <div className="flex gap-2">
-                        {/* NOUVEAUX BOUTONS EXPORT GROUPE */}
+                        {/* BOUTONS EXPORT GROUPE */}
                         <Button size="sm" onClick={handleGroupExportPDF} className="bg-red-600 hover:bg-red-700 text-white gap-2 shadow-sm"><FileText className="w-4 h-4"/> PDF Groupe</Button>
                         <Button size="sm" onClick={handleGroupExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-sm"><Download className="w-4 h-4"/> CSV Groupe</Button>
                         <Button variant="outline" size="sm" onClick={() => setComparisonMode(false)}>Fermer</Button>
                     </div>
                 </div>
 
-                {/* KPIS GLOBAUX DU GROUPE (MODIF: Label) */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Moyenne Compréhension</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Moyenne Satisfaction</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
-                    <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Profils Analysés</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-slate-900">{comparisonData.length}</div></CardContent></Card>
+                {/* KPIS GLOBAUX DU GROUPE + EMOTION DOMINANTE */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
+                    {/* CARTE EMOTION DOMINANTE */}
+                    <Card className="bg-green-50 border-green-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-green-600 uppercase flex items-center gap-1"><Smile className="w-3 h-3"/> Émotion Groupe</CardTitle></CardHeader><CardContent><div className="text-xl font-bold text-green-800 break-words leading-tight">{groupDominantEmotion}</div></CardContent></Card>
+                    <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Profils</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-slate-900">{comparisonData.length}</div></CardContent></Card>
                 </div>
 
-                {/* GRAPHIQUE COMPARATIF (MODIF: Label) */}
+                {/* GRAPHIQUE COMPARATIF */}
                 <Card className="border-slate-200 shadow-sm bg-white">
                     <CardHeader><CardTitle className="text-lg flex items-center gap-2">Comparatif des Performances</CardTitle></CardHeader>
                     <CardContent className="h-[350px]">
@@ -380,7 +418,7 @@ export default function AdminDashboard() {
                     </CardContent>
                 </Card>
 
-                {/* TABLEAU RÉCAPITULATIF (MODIF: Headers) */}
+                {/* TABLEAU RÉCAPITULATIF */}
                 <Card className="border-slate-200 shadow-sm bg-white">
                     <CardHeader><CardTitle className="text-sm uppercase text-slate-500">Détails par profil</CardTitle></CardHeader>
                     <div className="overflow-x-auto">
@@ -412,14 +450,12 @@ export default function AdminDashboard() {
           ) : selectedSession ? (
             /* VUE INDIVIDUELLE */
             <>
-              {/* MODIF: Labels Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
               </div>
 
-              {/* MODIF: Label Chart */}
               <Card className="border-slate-200 shadow-sm bg-white">
                 <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle></CardHeader>
                 <CardContent className="h-[300px]">
@@ -440,7 +476,6 @@ export default function AdminDashboard() {
                 </CardContent>
               </Card>
 
-              {/* MODIF: Headers Table */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
