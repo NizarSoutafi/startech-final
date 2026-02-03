@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart, ShieldCheck } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart, ShieldCheck, Search } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell } from 'recharts'
 import jsPDF from "jspdf"
@@ -49,6 +49,8 @@ export default function AdminDashboard() {
   const [measurements, setMeasurements] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   
+  // --- STATES SEARCH & SELECTION ---
+  const [searchTerm, setSearchTerm] = useState("") // NOUVEAU STATE RECHERCHE
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [comparisonMode, setComparisonMode] = useState(false) 
@@ -57,7 +59,7 @@ export default function AdminDashboard() {
   const [emotionDistribution, setEmotionDistribution] = useState<any[]>([])
   const [isComparing, setIsComparing] = useState(false)
 
-  // --- FORMULE CONVICTION (Ex-Potential Achat) ---
+  // --- FORMULE CONVICTION ---
   const calculateConviction = (engagement: number, satisfaction: number) => {
       if (satisfaction < 45) return engagement * 0.1
       return (engagement * 0.4) + (satisfaction * 0.6)
@@ -113,7 +115,16 @@ export default function AdminDashboard() {
     } catch (e) { console.error(e) }
   }
 
-  // --- GESTION MULTI-SELECTION ---
+  // --- GESTION MULTI-SELECTION & FILTRE ---
+  
+  // NOUVEAU : Fonction de filtrage pour la barre de recherche
+  const filteredSessions = sessions.filter(session => {
+      const fullName = `${session.first_name} ${session.last_name}`.toLowerCase()
+      const clientId = (session.client_id || "").toLowerCase()
+      const term = searchTerm.toLowerCase()
+      return fullName.includes(term) || clientId.includes(term)
+  })
+
   const toggleSelection = (e: React.MouseEvent, id: number) => {
       e.stopPropagation()
       if (selectedIds.includes(id)) setSelectedIds(prev => prev.filter(item => item !== id))
@@ -121,8 +132,8 @@ export default function AdminDashboard() {
   }
 
   const selectAll = () => {
-      if (selectedIds.length === sessions.length) setSelectedIds([])
-      else setSelectedIds(sessions.map(s => s.id))
+      if (selectedIds.length === filteredSessions.length) setSelectedIds([])
+      else setSelectedIds(filteredSessions.map(s => s.id))
   }
 
   const handleDelete = async (e: React.MouseEvent, sessionId: number) => {
@@ -165,7 +176,6 @@ export default function AdminDashboard() {
         const avgEng = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.engagement_val, 0) / measures.length : 0
         const avgSat = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.satisfaction_val, 0) / measures.length : 0
         const avgTrust = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.trust_val, 0) / measures.length : 0
-        // Loyalty = Crédibilité dans notre base
         const avgCred = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.loyalty_val, 0) / measures.length : 0
         const avgConviction = calculateConviction(avgEng, avgSat)
 
@@ -174,8 +184,8 @@ export default function AdminDashboard() {
           id: res.info.id,
           engagement: Math.round(avgEng),   
           satisfaction: Math.round(avgSat),
-          credibility: Math.round(avgCred), // Nouveau
-          conviction: Math.round(avgConviction), // Ex-CTA
+          credibility: Math.round(avgCred), 
+          conviction: Math.round(avgConviction),
           duration: measures.length
         }
       })
@@ -222,13 +232,11 @@ export default function AdminDashboard() {
   const formatDate = (dateString: string) => new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   const stripEmojis = (str: string) => str.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '').trim()
 
-  // Calculs Single View
   const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
   const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
   const avgCredibility = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.loyalty_val, 0) / measurements.length) : 0
   const avgConviction = Math.round(calculateConviction(avgEngagement, avgSatisfaction))
 
-  // Calculs Multi View
   const groupAvgEng = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.engagement, 0) / comparisonData.length) : 0
   const groupAvgSat = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.satisfaction, 0) / comparisonData.length) : 0
   const groupAvgCred = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.credibility, 0) / comparisonData.length) : 0
@@ -286,9 +294,9 @@ export default function AdminDashboard() {
     doc.setFont("helvetica", "normal")
     doc.text(`Compréhension : ${avgEngagement}%`, 25, 68); doc.text(`Satisfaction : ${avgSatisfaction}%`, 80, 68)
     
-    doc.setTextColor(147, 51, 234); // Violet Cred
+    doc.setTextColor(147, 51, 234); 
     doc.text(`Crédibilité : ${avgCredibility}%`, 135, 68)
-    doc.setTextColor(220, 38, 38); // Orange Conviction
+    doc.setTextColor(220, 38, 38); 
     doc.text(`Conviction : ${avgConviction}%`, 135, 74)
     doc.setTextColor(0, 0, 0)
 
@@ -299,8 +307,8 @@ export default function AdminDashboard() {
             m.emotion, 
             Math.round(m.engagement_val), 
             Math.round(m.satisfaction_val),
-            Math.round(m.loyalty_val), // Crédibilité
-            Math.round(calculateConviction(m.engagement_val, m.satisfaction_val)) // Conviction
+            Math.round(m.loyalty_val), 
+            Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
         ]), 
         startY: 90,
         headStyles: { fillColor: [34, 197, 94] }
@@ -369,18 +377,18 @@ export default function AdminDashboard() {
         {/* SIDEBAR */}
         <div className="lg:col-span-3 space-y-4">
           <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
-            <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50 p-4">
+            <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50 p-4 space-y-3">
               <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
                       <Button size="icon" variant="ghost" className="h-6 w-6" onClick={selectAll}>
-                          {selectedIds.length === sessions.length && sessions.length > 0 ? <CheckSquare className="w-4 h-4 text-green-600"/> : <Square className="w-4 h-4 text-slate-400"/>}
+                          {selectedIds.length === filteredSessions.length && filteredSessions.length > 0 ? <CheckSquare className="w-4 h-4 text-green-600"/> : <Square className="w-4 h-4 text-slate-400"/>}
                       </Button>
                       <span className="text-xs font-bold text-slate-500 uppercase">{selectedIds.length} Sél.</span>
                   </div>
                   <div className="flex gap-1">
                     {/* BOUTON COMPARER */}
                     {selectedIds.length > 1 && (
-                      <Button size="sm" variant="default" onClick={handleCompare} className="h-7 text-xs px-2 bg-blue-600 hover:bg-blue-700 text-white" title="Comparer les sessions sélectionnées">
+                      <Button size="sm" variant="default" onClick={handleCompare} className="h-7 text-xs px-2 bg-blue-600 hover:bg-blue-700 text-white" title="Comparer">
                           <PieChart className="w-3 h-3 mr-1" /> Comparer
                       </Button>
                     )}
@@ -389,27 +397,43 @@ export default function AdminDashboard() {
                     )}
                   </div>
               </div>
+              
+              {/* NOUVEAU : BARRE DE RECHERCHE */}
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
+                <Input 
+                    placeholder="Chercher nom, ID..." 
+                    className="pl-8 h-9 text-xs bg-white border-slate-200"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
             </CardHeader>
+
             <CardContent className="p-0 overflow-y-auto flex-1 custom-scrollbar">
               {isLoading ? <div className="p-8 text-center text-slate-400 text-xs">Chargement...</div> : (
                 <div className="divide-y divide-slate-100">
-                  {sessions.map((session) => (
-                    <div key={session.id} onClick={() => handleSelectSession(session.id)} className={`p-4 cursor-pointer hover:bg-green-50/50 transition-all group relative ${selectedSession?.id === session.id ? "bg-green-50 border-l-4 border-green-500" : "border-l-4 border-transparent"}`}>
-                      <div className="absolute left-2 top-4 z-10" onClick={(e) => toggleSelection(e, session.id)}>
-                          {selectedIds.includes(session.id) ? <CheckSquare className="w-4 h-4 text-green-600 fill-green-100"/> : <Square className="w-4 h-4 text-slate-300 hover:text-slate-500"/>}
+                  {filteredSessions.length > 0 ? (
+                    filteredSessions.map((session) => (
+                      <div key={session.id} onClick={() => handleSelectSession(session.id)} className={`p-4 cursor-pointer hover:bg-green-50/50 transition-all group relative ${selectedSession?.id === session.id ? "bg-green-50 border-l-4 border-green-500" : "border-l-4 border-transparent"}`}>
+                        <div className="absolute left-2 top-4 z-10" onClick={(e) => toggleSelection(e, session.id)}>
+                            {selectedIds.includes(session.id) ? <CheckSquare className="w-4 h-4 text-green-600 fill-green-100"/> : <Square className="w-4 h-4 text-slate-300 hover:text-slate-500"/>}
+                        </div>
+                        <div className="pl-6">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="font-bold text-slate-900 text-sm truncate w-24">{session.first_name} {session.last_name}</span>
+                              <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleDelete(e, session.id)}><X className="w-3 h-3" /></Button>
+                            </div>
+                            <div className="text-[10px] text-slate-500 flex justify-between items-center">
+                              <span>{formatDate(session.created_at)}</span>
+                              <Badge variant="secondary" className="text-[9px] py-0 h-4 px-1">{session.client_id}</Badge>
+                            </div>
+                        </div>
                       </div>
-                      <div className="pl-6">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-bold text-slate-900 text-sm truncate w-24">{session.first_name} {session.last_name}</span>
-                            <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleDelete(e, session.id)}><X className="w-3 h-3" /></Button>
-                          </div>
-                          <div className="text-[10px] text-slate-500 flex justify-between items-center">
-                            <span>{formatDate(session.created_at)}</span>
-                            <Badge variant="secondary" className="text-[9px] py-0 h-4 px-1">{session.client_id}</Badge>
-                          </div>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs italic">Aucun résultat</div>
+                  )}
                 </div>
               )}
             </CardContent>
