@@ -14,7 +14,6 @@ import Link from "next/link"
 // ADRESSE FIXE
 const API_URL = "https://persee-tech-startech-api.hf.space"
 
-interface MetricData { timestamp: number; value: number; engagement: number; satisfaction: number; trust: number; }
 interface UserInfo { firstName: string; lastName: string; clientId: string }
 
 export default function Dashboard() {
@@ -24,8 +23,18 @@ export default function Dashboard() {
   const [isRecording, setIsRecording] = useState(false)
   const [sessionTime, setSessionTime] = useState(0)
   const [formData, setFormData] = useState({ firstName: "", lastName: "", clientId: "" })
-  const [currentMetrics, setCurrentMetrics] = useState({ engagement: 0, satisfaction: 50, trust: 50, loyalty: 50, opinion: 50, emotion: "neutral" })
-  const [history, setHistory] = useState<MetricData[]>([])
+  
+  // --- MODIFICATION ICI : Ajout de conversion et lbl_conv ---
+  const [currentMetrics, setCurrentMetrics] = useState({ 
+    engagement: 0, 
+    satisfaction: 50, 
+    trust: 50, 
+    loyalty: 50, 
+    opinion: 50, 
+    conversion: 0,      // Nouveau KPI
+    lbl_conv: "En attente", // Nouveau Label
+    emotion: "neutral" 
+  })
   
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -39,7 +48,6 @@ export default function Dashboard() {
   const [csvContent, setCsvContent] = useState<string[][]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // 1. Démarrer Webcam Locale
   useEffect(() => {
     if (userInfo && !cameraActive) {
       navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
@@ -48,7 +56,6 @@ export default function Dashboard() {
     }
   }, [userInfo, cameraActive])
 
-  // 2. Logique Socket
   useEffect(() => {
     if (!userInfo) return;
     
@@ -66,19 +73,18 @@ export default function Dashboard() {
       setIsRecording(data.is_recording)
       setFaceCoords(data.face_coords)
       
+      // --- MODIFICATION ICI : Récupération du score de conversion ---
       const newMetrics = { 
         emotion: data.emotion,
-        engagement: data.metrics.engagement, satisfaction: data.metrics.satisfaction,
-        trust: data.metrics.trust, loyalty: data.metrics.loyalty, opinion: data.metrics.opinion
+        engagement: data.metrics.engagement, 
+        satisfaction: data.metrics.satisfaction,
+        trust: data.metrics.trust, 
+        loyalty: data.metrics.loyalty, 
+        opinion: data.metrics.opinion,
+        conversion: data.metrics.conversion || 0, // Nouveau
+        lbl_conv: data.metrics.lbl_conv || "Analysing..." // Nouveau
       }
       setCurrentMetrics(newMetrics)
-      
-      if (data.is_recording) {
-        setHistory(prev => [...prev.slice(-29), {
-          timestamp: data.session_time, value: newMetrics.engagement, engagement: newMetrics.engagement,
-          satisfaction: newMetrics.satisfaction, trust: newMetrics.trust
-        }])
-      }
     })
 
     setSocket(newSocket)
@@ -97,7 +103,6 @@ export default function Dashboard() {
     return () => { clearInterval(interval); newSocket.close() }
   }, [userInfo])
 
-  // --- GESTION MEDIA ---
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -105,10 +110,7 @@ export default function Dashboard() {
       const url = URL.createObjectURL(file)
       setMediaUrl(url)
       setCsvContent([])
-
-      const type = file.type
-      const name = file.name.toLowerCase()
-
+      const type = file.type; const name = file.name.toLowerCase()
       if (type.startsWith('video/')) setMediaType('video')
       else if (type.startsWith('image/')) setMediaType('image')
       else if (type.startsWith('audio/')) setMediaType('audio')
@@ -137,15 +139,14 @@ export default function Dashboard() {
               setIsRecording(false) 
           } else {
               setSessionTime(0)
-              setHistory([])
               socket.emit("start_session", userInfo)
               setIsRecording(true) 
           }
       } 
   }
 
-  const handleReset = () => { if (socket) socket.emit("stop_session"); setHistory([]); setSessionTime(0); setCurrentMetrics(prev => ({ ...prev, engagement: 0, emotion: "neutral" })) }
-  const handleLogout = () => { setUserInfo(null); setHistory([]); setSessionTime(0); setCameraActive(false); if(socket) socket.disconnect() }
+  const handleReset = () => { if (socket) socket.emit("stop_session"); setSessionTime(0); setCurrentMetrics(prev => ({ ...prev, engagement: 0, emotion: "neutral", conversion: 0 })) }
+  const handleLogout = () => { setUserInfo(null); setSessionTime(0); setCameraActive(false); if(socket) socket.disconnect() }
   const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`
   const getEmotionDisplay = (e: string) => { const map: any = { happy: "😄 JOIE", sad: "😢 TRISTESSE", angry: "😠 COLÈRE", surprise: "😲 SURPRISE", fear: "😨 PEUR", neutral: "😐 NEUTRE" }; return map[e] || e.toUpperCase() }
 
@@ -187,19 +188,17 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* --- STRUCTURE DU LAYOUT MODIFIÉE ICI --- */}
       <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto flex flex-col gap-6">
         
-        {/* LIGNE DU HAUT : 2 COLONNES (CAMÉRA + MÉDIA) */}
+        {/* LIGNE HAUTE : CAMÉRA + MÉDIA */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            {/* 1. WEBCAM (GAUCHE) */}
+            {/* 1. WEBCAM */}
             <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none group h-[500px]">
               <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
               <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
               <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
               <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
-              
               <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-[0_0_20px_#22c55e] z-10 animate-[scan_3s_ease-in-out_infinite] transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} style={{ top: '0%' }} />
               <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
 
@@ -242,7 +241,7 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* 2. ZONE MEDIA UNIVERSEL (DROITE) - HAUTEUR FIXÉE POUR ALIGNEMENT */}
+            {/* 2. MEDIA */}
             <Card className="border-slate-200 bg-white shadow-md flex flex-col h-[500px]">
               <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
                 <div><CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2"><FileText className="w-4 h-4 text-green-600" /> Support de Test</CardTitle></div>
@@ -289,7 +288,7 @@ export default function Dashboard() {
             </Card>
         </div>
 
-        {/* LIGNE DU BAS : INDICATEURS SUR TOUTE LA LARGEUR */}
+        {/* LIGNE BASSE : INDICATEURS */}
         <div className="w-full flex flex-col gap-4">
             <MetricsPanel metrics={currentMetrics} />
             <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm flex justify-between items-center text-xs font-mono text-slate-500">
