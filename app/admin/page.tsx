@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart, ShieldCheck } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell } from 'recharts'
 import jsPDF from "jspdf"
@@ -37,30 +37,28 @@ const EMOTION_LABELS: any = {
 }
 
 export default function AdminDashboard() {
-  // --- STATES AUTH ---
+  // --- STATES ---
   const [session, setSession] = useState<any>(null)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [authError, setAuthError] = useState("")
   const [authLoading, setAuthLoading] = useState(false)
 
-  // --- STATES DASHBOARD ---
   const [sessions, setSessions] = useState<any[]>([])
   const [selectedSession, setSelectedSession] = useState<any | null>(null)
   const [measurements, setMeasurements] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   
-  // --- STATES MULTI-SELECTION ---
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [comparisonMode, setComparisonMode] = useState(false) 
   const [comparisonData, setComparisonData] = useState<any[]>([]) 
   const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A")
-  const [emotionDistribution, setEmotionDistribution] = useState<any[]>([]) // NOUVEAU
+  const [emotionDistribution, setEmotionDistribution] = useState<any[]>([])
   const [isComparing, setIsComparing] = useState(false)
 
-  // --- FORMULE SCIENTIFIQUE (Recalcul Côté Admin) ---
-  const calculateCTA = (engagement: number, satisfaction: number) => {
+  // --- FORMULE CONVICTION (Ex-Potential Achat) ---
+  const calculateConviction = (engagement: number, satisfaction: number) => {
       if (satisfaction < 45) return engagement * 0.1
       return (engagement * 0.4) + (satisfaction * 0.6)
   }
@@ -149,7 +147,7 @@ export default function AdminDashboard() {
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
   }
 
-  // --- LOGIQUE DE COMPARAISON & EMOTION DISTRIBUTION ---
+  // --- LOGIQUE DE COMPARAISON ---
   const handleCompare = async () => {
     if (selectedIds.length < 2) return
     setIsComparing(true)
@@ -161,31 +159,30 @@ export default function AdminDashboard() {
       const promises = selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`).then(res => res.json()))
       const results = await Promise.all(promises)
 
-      // 1. Calcul Stats individuelles
+      // 1. Calcul Stats
       const stats = results.map((res: any) => {
         const measures = res.data || []
         const avgEng = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.engagement_val, 0) / measures.length : 0
         const avgSat = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.satisfaction_val, 0) / measures.length : 0
         const avgTrust = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.trust_val, 0) / measures.length : 0
-        const avgLoyalty = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.loyalty_val, 0) / measures.length : 0
-        const avgCTA = calculateCTA(avgEng, avgSat)
+        // Loyalty = Crédibilité dans notre base
+        const avgCred = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.loyalty_val, 0) / measures.length : 0
+        const avgConviction = calculateConviction(avgEng, avgSat)
 
         return {
           name: `${res.info.first_name} ${res.info.last_name}`,
           id: res.info.id,
           engagement: Math.round(avgEng),   
           satisfaction: Math.round(avgSat),
-          trust: Math.round(avgTrust),
-          loyalty: Math.round(avgLoyalty),
-          conversion: Math.round(avgCTA), 
+          credibility: Math.round(avgCred), // Nouveau
+          conviction: Math.round(avgConviction), // Ex-CTA
           duration: measures.length
         }
       })
 
-      // 2. Calcul Répartition Émotionnelle (Pie Chart Data)
+      // 2. Répartition Émotionnelle
       const emotionCounts: Record<string, number> = {}
       let totalEmotions = 0
-
       results.forEach((res: any) => {
           const measures = res.data || []
           measures.forEach((m: any) => {
@@ -197,17 +194,15 @@ export default function AdminDashboard() {
           })
       })
 
-      // Transformer en format pour le graphique
       const distributionData = Object.entries(emotionCounts).map(([key, count]) => ({
           name: EMOTION_LABELS[key] || key,
           value: count,
           percent: Math.round((count / totalEmotions) * 100),
           fill: EMOTION_COLORS[key] || "#000"
-      })).sort((a, b) => b.value - a.value) // Trier du plus grand au plus petit
+      })).sort((a, b) => b.value - a.value)
 
       setEmotionDistribution(distributionData)
 
-      // Trouver la dominante
       if (distributionData.length > 0) {
           setGroupDominantEmotion(distributionData[0].name.toUpperCase())
       } else {
@@ -222,123 +217,135 @@ export default function AdminDashboard() {
     }
   }
 
-  // --- HELPERS AFFICHAGE ---
+  // --- HELPERS ---
   const getAvisLabel = (val: number) => val > 60 ? "Avis Positif 👍" : (val < 40 ? "Avis Négatif 👎" : "Avis Neutre 😐")
   const formatDate = (dateString: string) => new Date(dateString).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   const stripEmojis = (str: string) => str.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '').trim()
 
+  // Calculs Single View
   const avgEngagement = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.engagement_val, 0) / measurements.length) : 0
   const avgSatisfaction = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.satisfaction_val, 0) / measurements.length) : 0
-  const avgCTA = Math.round(calculateCTA(avgEngagement, avgSatisfaction))
+  const avgCredibility = measurements.length ? Math.round(measurements.reduce((acc, curr) => acc + curr.loyalty_val, 0) / measurements.length) : 0
+  const avgConviction = Math.round(calculateConviction(avgEngagement, avgSatisfaction))
 
+  // Calculs Multi View
   const groupAvgEng = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.engagement, 0) / comparisonData.length) : 0
   const groupAvgSat = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.satisfaction, 0) / comparisonData.length) : 0
-  const groupAvgCTA = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conversion, 0) / comparisonData.length) : 0
+  const groupAvgCred = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.credibility, 0) / comparisonData.length) : 0
+  const groupAvgConv = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conviction, 0) / comparisonData.length) : 0
 
-  // --- EXPORTS ---
+  // --- EXPORTS CSV ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Satisfaction${separator}Potentiel Achat${separator}Avis Global\n`
+    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Avis Global\n`
     measurements.forEach((m) => {
-        const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
-        const row = [m.session_time, m.emotion, m.emotion_score, Math.round(m.engagement_val), Math.round(m.satisfaction_val), cta, getAvisLabel(m.opinion_val)].join(separator)
+        const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
+        const row = [m.session_time, m.emotion, m.emotion_score, Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(m.loyalty_val), conv, getAvisLabel(m.opinion_val)].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_${selectedSession.first_name}.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
 
-  const handleExportPDF = () => {
-    if (!measurements.length || !selectedSession) return
-    const doc = new jsPDF()
-    doc.text(`Rapport: ${selectedSession.first_name}`, 14, 20)
-    autoTable(doc, { 
-        head: [['T(s)', 'Emotion', 'Compr.', 'Satis.', 'CTA']], 
-        body: measurements.map(m => [m.session_time, m.emotion, Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))]), 
-        startY: 30 
-    })
-    doc.save(`Rapport_${selectedSession.first_name}.pdf`)
-  }
-
-  // --- EXPORTS GROUPE COMPLET ---
   const handleGroupExportCSV = () => {
     if (!comparisonData.length) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-    
-    // Section 1 : Résumé
     csvContent += `EMOTION DOMINANTE : ${stripEmojis(groupDominantEmotion)}\n`
-    csvContent += `MOYENNE POTENTIEL ACHAT : ${groupAvgCTA}%\n\n`
+    csvContent += `MOYENNE CONVICTION : ${groupAvgConv}%\n`
+    csvContent += `MOYENNE CREDIBILITE : ${groupAvgCred}%\n\n`
     
-    // Section 2 : Répartition Emotionnelle
     csvContent += `REPARTITION EMOTIONNELLE\nEmotion${separator}Pourcentage\n`
-    emotionDistribution.forEach(e => {
-        csvContent += `${e.name}${separator}${e.percent}%\n`
-    })
+    emotionDistribution.forEach(e => { csvContent += `${e.name}${separator}${e.percent}%\n` })
     csvContent += "\n"
 
-    // Section 3 : Détails Profils
-    csvContent += `DETAILS PROFILS\nNom${separator}Comprehension${separator}Satisfaction${separator}Potentiel Achat${separator}Duree (s)\n`
+    csvContent += `DETAILS PROFILS\nNom${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Duree (s)\n`
     comparisonData.forEach((d) => {
-        const row = [d.name, d.engagement, d.satisfaction, d.conversion, d.duration].join(separator)
+        const row = [d.name, d.engagement, d.satisfaction, d.credibility, d.conviction, d.duration].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a"); link.setAttribute("href", encodedUri); const filename = `Rapport_Groupe_Complet.csv`; link.setAttribute("download", filename); document.body.appendChild(link); link.click(); document.body.removeChild(link)
   }
 
+  // --- EXPORTS PDF ---
+  const handleExportPDF = () => {
+    if (!measurements.length || !selectedSession) return
+    const doc = new jsPDF()
+    doc.setFillColor(34, 197, 94); doc.rect(0, 0, 210, 24, 'F')
+    doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("STARTECH VISION", 14, 16)
+    doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("ANALYSE INDIVIDUELLE", 200, 16, { align: "right" })
+    doc.setTextColor(0, 0, 0); doc.setFontSize(10)
+    doc.text(`Client : ${selectedSession.first_name} ${selectedSession.last_name}`, 14, 35)
+    doc.text(`Date : ${formatDate(selectedSession.created_at)}`, 14, 41)
+    
+    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 30, 2, 2, 'F')
+    doc.setFont("helvetica", "bold"); doc.text("SYNTHÈSE", 105, 58, { align: "center" })
+    doc.setFont("helvetica", "normal")
+    doc.text(`Compréhension : ${avgEngagement}%`, 25, 68); doc.text(`Satisfaction : ${avgSatisfaction}%`, 80, 68)
+    
+    doc.setTextColor(147, 51, 234); // Violet Cred
+    doc.text(`Crédibilité : ${avgCredibility}%`, 135, 68)
+    doc.setTextColor(220, 38, 38); // Orange Conviction
+    doc.text(`Conviction : ${avgConviction}%`, 135, 74)
+    doc.setTextColor(0, 0, 0)
+
+    autoTable(doc, { 
+        head: [['T(s)', 'Emotion', 'Compr.', 'Satis.', 'Crédib.', 'Convict.']], 
+        body: measurements.map(m => [
+            m.session_time, 
+            m.emotion, 
+            Math.round(m.engagement_val), 
+            Math.round(m.satisfaction_val),
+            Math.round(m.loyalty_val), // Crédibilité
+            Math.round(calculateConviction(m.engagement_val, m.satisfaction_val)) // Conviction
+        ]), 
+        startY: 90,
+        headStyles: { fillColor: [34, 197, 94] }
+    })
+    doc.save(`Rapport_${selectedSession.first_name}.pdf`)
+  }
+
   const handleGroupExportPDF = () => {
     if (!comparisonData.length) return
     const doc = new jsPDF()
-    // En-tête
     doc.setFillColor(34, 197, 94); doc.rect(0, 0, 210, 24, 'F')
     doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.text("STARTECH VISION", 14, 16)
     doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.text("ANALYSE DE GROUPE", 200, 16, { align: "right" })
     
-    // Résumé
     doc.setTextColor(0, 0, 0); doc.setFontSize(10)
-    doc.text(`Date : ${new Date().toLocaleDateString('fr-FR')}`, 14, 35)
-    doc.text(`Nombre de profils : ${comparisonData.length}`, 14, 41)
+    doc.text(`Nombre de profils : ${comparisonData.length}`, 14, 35)
 
-    // Synthèse Moyenne
-    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 30, 2, 2, 'F')
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("SYNTHÈSE GLOBALE", 105, 58, { align: "center" })
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10)
-    doc.text(`Compréhension : ${groupAvgEng}%`, 25, 68); doc.text(`Satisfaction : ${groupAvgSat}%`, 80, 68)
+    doc.setFillColor(245, 245, 245); doc.roundedRect(14, 45, 182, 35, 2, 2, 'F')
+    doc.setFont("helvetica", "bold"); doc.text("SYNTHÈSE GLOBALE", 105, 53, { align: "center" })
+    doc.setFont("helvetica", "normal")
+    doc.text(`Compréhension : ${groupAvgEng}%`, 25, 63); doc.text(`Satisfaction : ${groupAvgSat}%`, 80, 63)
     
     doc.setFont("helvetica", "bold"); doc.setTextColor(22, 163, 74) 
-    doc.text(`Dominante : ${stripEmojis(groupDominantEmotion)}`, 135, 65)
+    doc.text(`Dominante : ${stripEmojis(groupDominantEmotion)}`, 135, 63)
+    doc.setTextColor(147, 51, 234); 
+    doc.text(`Crédibilité : ${groupAvgCred}%`, 80, 70)
     doc.setTextColor(220, 38, 38); 
-    doc.text(`Potentiel Achat : ${groupAvgCTA}%`, 135, 72)
+    doc.text(`Conviction : ${groupAvgConv}%`, 135, 70)
     doc.setTextColor(0, 0, 0)
 
-    // Tableau Répartition Emotionnelle
-    doc.setFontSize(11); doc.text("Répartition Émotionnelle", 14, 95)
-    const emoRows = emotionDistribution.map(e => [e.name, e.percent + '%', e.value + ' occurences'])
+    doc.setFontSize(11); doc.text("Répartition Émotionnelle", 14, 90)
+    const emoRows = emotionDistribution.map(e => [e.name, e.percent + '%', e.value + ' occ.'])
     autoTable(doc, { 
-        head: [['Emotion', 'Pourcentage', 'Volume']], 
-        body: emoRows, 
-        startY: 100, 
-        theme: 'striped',
+        head: [['Emotion', 'Pourcentage', 'Volume']], body: emoRows, startY: 95, theme: 'striped',
         headStyles: { fillColor: [100, 116, 139] }
     })
 
-    // Tableau Comparatif Profils (Suite)
     const finalY = (doc as any).lastAutoTable.finalY + 15
     doc.text("Détails par Profil", 14, finalY - 5)
     
-    const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.conversion + '%', d.duration + 's'])
-    
+    const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.credibility + '%', d.conviction + '%'])
     autoTable(doc, { 
-        head: [['Nom', 'Compréhension', 'Satisfaction', 'Pot. Achat', 'Durée']], 
-        body: tableRows, 
-        startY: finalY, 
-        theme: 'grid', 
-        headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold', halign: 'center' }, 
-        bodyStyles: { textColor: 50, halign: 'center' }, 
-        alternateRowStyles: { fillColor: [239, 246, 255] } 
+        head: [['Nom', 'Compréhension', 'Satisfaction', 'Crédibilité', 'Conviction']], 
+        body: tableRows, startY: finalY, theme: 'grid', 
+        headStyles: { fillColor: [59, 130, 246] }
     })
     doc.save(`Rapport_Groupe_Complet.pdf`)
   }
@@ -427,14 +434,15 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* KPIS GLOBAUX */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Compréhension</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-blue-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
-                    <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Potentiel Achat</CardTitle></CardHeader><CardContent><div className="text-3xl font-bold text-orange-800">{groupAvgCTA}%</div></CardContent></Card>
-                    <Card className="bg-green-50 border-green-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-green-600 uppercase flex items-center gap-1"><Smile className="w-3 h-3"/> Emotion Leader</CardTitle></CardHeader><CardContent><div className="text-xl font-bold text-green-800 break-words leading-tight">{groupDominantEmotion}</div></CardContent></Card>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-blue-500 uppercase">Compréhension</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-blue-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
+                    <Card className="bg-purple-50 border-purple-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-purple-600 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Crédibilité</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-purple-800">{groupAvgCred}%</div></CardContent></Card>
+                    <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Conviction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-orange-800">{groupAvgConv}%</div></CardContent></Card>
+                    <Card className="bg-green-50 border-green-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-green-600 uppercase flex items-center gap-1"><Smile className="w-3 h-3"/> Dominante</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-lg font-bold text-green-800 truncate">{groupDominantEmotion}</div></CardContent></Card>
                 </div>
 
-                {/* SECTION ANALYSE EMOTIONNELLE DETAILLEE (NOUVEAU) */}
+                {/* SECTION ANALYSE EMOTIONNELLE DETAILLEE */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* CAMEMBERT */}
                     <Card className="lg:col-span-1 border-slate-200 shadow-sm bg-white">
@@ -489,7 +497,8 @@ export default function AdminDashboard() {
                                 <Legend />
                                 <Bar dataKey="engagement" name="Compréhension" fill="#22c55e" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="satisfaction" name="Satisfaction" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="conversion" name="Potentiel Achat" fill="#f97316" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="credibility" name="Crédibilité" fill="#a855f7" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="conviction" name="Conviction" fill="#f97316" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </CardContent>
@@ -498,11 +507,12 @@ export default function AdminDashboard() {
           ) : selectedSession ? (
             /* VUE INDIVIDUELLE */
             <>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
-                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Compréhension Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
-                <Card className="bg-white border-slate-200 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-slate-500 uppercase">Satisfaction Moy.</CardTitle></CardHeader><CardContent><div className={`text-2xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
-                <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2"><CardTitle className="text-xs text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Potentiel Achat</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-orange-700">{avgCTA}%</div></CardContent></Card>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <Card className="bg-white border-slate-200 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
+                <Card className="bg-white border-slate-200 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-slate-500 uppercase">Compréhension</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className={`text-xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
+                <Card className="bg-white border-slate-200 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-slate-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className={`text-xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
+                <Card className="bg-purple-50 border-purple-100 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-purple-600 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Crédibilité</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-xl font-bold text-purple-700">{avgCredibility}%</div></CardContent></Card>
+                <Card className="bg-orange-50 border-orange-100 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Conviction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-xl font-bold text-orange-700">{avgConviction}%</div></CardContent></Card>
               </div>
 
               <Card className="border-slate-200 shadow-sm bg-white">
@@ -541,26 +551,24 @@ export default function AdminDashboard() {
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Compréhension</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Compr.</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Label Satisf.</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap text-orange-600">Potentiel Achat</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap text-purple-700">Crédibilité</th>
+                        <th className="px-4 py-3 font-bold whitespace-nowrap text-orange-600">Conviction</th>
                         <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis Global</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {measurements.map((m, i) => {
-                        const cta = Math.round(calculateCTA(m.engagement_val, m.satisfaction_val))
+                        const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
                         return (
                         <tr key={i} className="hover:bg-slate-50 transition-colors">
                           <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
                           <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
                           <td className="px-4 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
                           <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
-                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.engagement_lbl}</td>
                           <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
-                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{m.satisfaction_lbl}</td>
-                          <td className="px-4 py-3 font-bold text-orange-600 bg-orange-50/30">{cta}%</td>
+                          <td className="px-4 py-3 font-bold text-purple-700 bg-purple-50/30">{Math.round(m.loyalty_val)}%</td>
+                          <td className="px-4 py-3 font-bold text-orange-600 bg-orange-50/30">{conv}%</td>
                           <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
                         </tr>
                       )})}
