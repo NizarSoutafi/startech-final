@@ -253,9 +253,15 @@ export default function AdminDashboard() {
       const link = document.createElement("a")
       link.href = dataUrl
       link.download = `Analyse_Temporelle_${selectedSession?.first_name || 'Export'}.png`
+      
+      // AJOUTS OBLIGATOIRES POUR LES NAVIGATEURS MODERNES
+      document.body.appendChild(link) 
       link.click()
+      document.body.removeChild(link) 
+      
     } catch (err) {
       console.error("Erreur lors de l'export de l'image du graphique :", err)
+      alert("Erreur lors de la création de l'image.")
     }
   }
 
@@ -267,12 +273,17 @@ export default function AdminDashboard() {
       const link = document.createElement("a")
       link.href = dataUrl
       link.download = `Donnees_Detaillees_${selectedSession?.first_name || 'Export'}.png`
+      
+      // AJOUTS OBLIGATOIRES POUR LES NAVIGATEURS MODERNES
+      document.body.appendChild(link) 
       link.click()
+      document.body.removeChild(link) 
+      
     } catch (err) {
       console.error("Erreur lors de l'export de l'image du tableau :", err)
+      alert("Erreur lors de la création de l'image.")
     }
   }
-
   // --- EXPORTS CSV ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
