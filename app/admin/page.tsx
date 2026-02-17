@@ -1,17 +1,18 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { createClient } from "@supabase/supabase-js"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart, ShieldCheck, Search } from "lucide-react"
+import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart, ShieldCheck, Search, Image as ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell } from 'recharts'
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
+import html2canvas from "html2canvas" // NOUVEAU: Import pour la capture d'image
 
 // --- CONFIGURATION ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -50,7 +51,7 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(false)
   
   // --- STATES SEARCH & SELECTION ---
-  const [searchTerm, setSearchTerm] = useState("") // NOUVEAU STATE RECHERCHE
+  const [searchTerm, setSearchTerm] = useState("")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [comparisonMode, setComparisonMode] = useState(false) 
@@ -58,6 +59,10 @@ export default function AdminDashboard() {
   const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A")
   const [emotionDistribution, setEmotionDistribution] = useState<any[]>([])
   const [isComparing, setIsComparing] = useState(false)
+
+  // NOUVEAU : Références pour capturer les images
+  const chartRef = useRef<HTMLDivElement>(null)
+  const tableRef = useRef<HTMLDivElement>(null)
 
   // --- FORMULE CONVICTION ---
   const calculateConviction = (engagement: number, satisfaction: number) => {
@@ -117,7 +122,6 @@ export default function AdminDashboard() {
 
   // --- GESTION MULTI-SELECTION & FILTRE ---
   
-  // NOUVEAU : Fonction de filtrage pour la barre de recherche
   const filteredSessions = sessions.filter(session => {
       const fullName = `${session.first_name} ${session.last_name}`.toLowerCase()
       const clientId = (session.client_id || "").toLowerCase()
@@ -170,7 +174,6 @@ export default function AdminDashboard() {
       const promises = selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`).then(res => res.json()))
       const results = await Promise.all(promises)
 
-      // 1. Calcul Stats
       const stats = results.map((res: any) => {
         const measures = res.data || []
         const avgEng = measures.length ? measures.reduce((acc:any, curr:any) => acc + curr.engagement_val, 0) / measures.length : 0
@@ -190,7 +193,6 @@ export default function AdminDashboard() {
         }
       })
 
-      // 2. Répartition Émotionnelle
       const emotionCounts: Record<string, number> = {}
       let totalEmotions = 0
       results.forEach((res: any) => {
@@ -241,6 +243,35 @@ export default function AdminDashboard() {
   const groupAvgSat = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.satisfaction, 0) / comparisonData.length) : 0
   const groupAvgCred = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.credibility, 0) / comparisonData.length) : 0
   const groupAvgConv = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conviction, 0) / comparisonData.length) : 0
+
+  // --- NOUVEAU : EXPORTS IMAGES (PNG) ---
+  const handleExportChartImage = async () => {
+    if (!chartRef.current) return
+    try {
+      const canvas = await html2canvas(chartRef.current, { backgroundColor: "#ffffff", scale: 2 })
+      const dataUrl = canvas.toDataURL("image/png")
+      const link = document.createElement("a")
+      link.href = dataUrl
+      link.download = `Analyse_Temporelle_${selectedSession?.first_name || 'Export'}.png`
+      link.click()
+    } catch (err) {
+      console.error("Erreur lors de l'export de l'image du graphique :", err)
+    }
+  }
+
+  const handleExportTableImage = async () => {
+    if (!tableRef.current) return
+    try {
+      const canvas = await html2canvas(tableRef.current, { backgroundColor: "#ffffff", scale: 2 })
+      const dataUrl = canvas.toDataURL("image/png")
+      const link = document.createElement("a")
+      link.href = dataUrl
+      link.download = `Donnees_Detaillees_${selectedSession?.first_name || 'Export'}.png`
+      link.click()
+    } catch (err) {
+      console.error("Erreur lors de l'export de l'image du tableau :", err)
+    }
+  }
 
   // --- EXPORTS CSV ---
   const handleExportCSV = () => {
@@ -398,7 +429,6 @@ export default function AdminDashboard() {
                   </div>
               </div>
               
-              {/* NOUVEAU : BARRE DE RECHERCHE */}
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
                 <Input 
@@ -539,65 +569,75 @@ export default function AdminDashboard() {
                 <Card className="bg-orange-50 border-orange-100 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Conviction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-xl font-bold text-orange-700">{avgConviction}%</div></CardContent></Card>
               </div>
 
+              {/* GRAPHIQUE TEMPOREL */}
               <Card className="border-slate-200 shadow-sm bg-white">
-                <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle></CardHeader>
-                <CardContent className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={measurements} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorEng" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/><stop offset="95%" stopColor="#22c55e" stopOpacity={0}/></linearGradient>
-                        <linearGradient id="colorSat" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient>
-                      </defs>
-                      <XAxis dataKey="session_time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px' }} />
-                      <Area type="monotone" dataKey="engagement_val" name="Compréhension" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
-                      <Area type="monotone" dataKey="satisfaction_val" name="Satisfaction" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSat)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </CardContent>
+                <CardHeader className="flex flex-row justify-between items-center">
+                    <CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-green-600"/> Analyse Temporelle</CardTitle>
+                    <Button size="sm" onClick={handleExportChartImage} variant="outline" className="gap-2 shadow-sm text-slate-600"><ImageIcon className="w-4 h-4"/> Image PNG</Button>
+                </CardHeader>
+                <div ref={chartRef} className="bg-white p-2">
+                    <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={measurements} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                        <defs>
+                            <linearGradient id="colorEng" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/><stop offset="95%" stopColor="#22c55e" stopOpacity={0}/></linearGradient>
+                            <linearGradient id="colorSat" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient>
+                        </defs>
+                        <XAxis dataKey="session_time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px' }} />
+                        <Area type="monotone" dataKey="engagement_val" name="Compréhension" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
+                        <Area type="monotone" dataKey="satisfaction_val" name="Satisfaction" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSat)" />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                    </CardContent>
+                </div>
               </Card>
 
+              {/* TABLEAU DETAILLE */}
               <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
                 <CardHeader className="border-b border-slate-100 bg-slate-50/50 flex flex-row justify-between items-center">
                     <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5 text-slate-500"/> Données Détaillées</CardTitle>
                     <div className="flex gap-2">
+                        <Button size="sm" onClick={handleExportTableImage} variant="outline" className="gap-2 shadow-sm text-slate-600 bg-white"><ImageIcon className="w-4 h-4"/> Image PNG</Button>
                         <Button size="sm" onClick={handleExportPDF} className="bg-red-600 hover:bg-red-700 text-white gap-2 shadow-lg"><FileText className="w-4 h-4"/> Export PDF</Button>
                         <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-lg"><Download className="w-4 h-4"/> Export CSV</Button>
                     </div>
                 </CardHeader>
-                <div className="overflow-x-auto max-h-[400px]">
-                  <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
-                      <tr>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Temps</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Compréhension</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap text-purple-700">Crédibilité</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap text-orange-600">Conviction</th>
-                        <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis Global</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {measurements.map((m, i) => {
-                        const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
-                        return (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
-                          <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
-                          <td className="px-4 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
-                          <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
-                          <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
-                          <td className="px-4 py-3 font-bold text-purple-700 bg-purple-50/30">{Math.round(m.loyalty_val)}%</td>
-                          <td className="px-4 py-3 font-bold text-orange-600 bg-orange-50/30">{conv}%</td>
-                          <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
+                <div ref={tableRef} className="bg-white p-2">
+                    <div className="overflow-x-auto max-h-[400px]">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap">Temps</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Compréhension</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap text-purple-700">Crédibilité</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap text-orange-600">Conviction</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap bg-blue-50/50">Avis Global</th>
                         </tr>
-                      )})}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                        {measurements.map((m, i) => {
+                            const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
+                            return (
+                            <tr key={i} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
+                            <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
+                            <td className="px-4 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
+                            <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
+                            <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
+                            <td className="px-4 py-3 font-bold text-purple-700 bg-purple-50/30">{Math.round(m.loyalty_val)}%</td>
+                            <td className="px-4 py-3 font-bold text-orange-600 bg-orange-50/30">{conv}%</td>
+                            <td className="px-4 py-3 font-bold text-blue-700 bg-blue-50/30 text-xs whitespace-nowrap">{getAvisLabel(m.opinion_val)}</td>
+                            </tr>
+                        )})}
+                        </tbody>
+                    </table>
+                    </div>
                 </div>
               </Card>
             </>
