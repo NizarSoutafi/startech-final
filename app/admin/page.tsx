@@ -245,18 +245,35 @@ export default function AdminDashboard() {
   const groupAvgConv = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conviction, 0) / comparisonData.length) : 0
 
   // --- EXPORTS IMAGES (PNG) AVEC HTML-TO-IMAGE ---
-  const handleExportChartImage = async () => {
-    if (!chartRef.current) return
+  const handleExportTableImage = async () => {
+    if (!tableRef.current) return
     try {
-      const dataUrl = await toPng(chartRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 })
+      // 1. Sauvegarder les styles actuels pour pouvoir les remettre
+      const originalMaxHeight = tableRef.current.style.maxHeight
+      const originalOverflow = tableRef.current.style.overflow
+
+      // 2. Enlever les limites pour afficher le tableau en entier
+      tableRef.current.style.maxHeight = 'none'
+      tableRef.current.style.overflow = 'visible'
+
+      // Petit temps de pause pour laisser le navigateur dessiner la grande table
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // 3. Prendre la photo
+      const dataUrl = await toPng(tableRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 })
       const link = document.createElement("a")
       link.href = dataUrl
-      link.download = `Analyse_Temporelle_${selectedSession?.first_name || 'Export'}.png`
+      link.download = `Donnees_Detaillees_${selectedSession?.first_name || 'Export'}.png`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
+
+      // 4. Remettre le tableau normal (avec le scroll)
+      tableRef.current.style.maxHeight = originalMaxHeight
+      tableRef.current.style.overflow = originalOverflow
+
     } catch (err) {
-      console.error("Erreur lors de l'export de l'image du graphique :", err)
+      console.error("Erreur lors de l'export de l'image du tableau :", err)
       alert("Erreur lors de la création de l'image.")
     }
   }
@@ -609,8 +626,8 @@ export default function AdminDashboard() {
                         <Button size="sm" onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white gap-2 shadow-lg"><Download className="w-4 h-4"/> Export CSV</Button>
                     </div>
                 </CardHeader>
-                <div ref={tableRef} className="bg-white p-2">
-                    <div className="overflow-x-auto max-h-[400px]">
+                <div className="bg-white p-2">
+                    <div ref={tableRef} className="overflow-x-auto max-h-[400px]">
                     <table className="w-full text-sm text-left">
                         <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm">
                         <tr>
