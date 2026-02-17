@@ -12,7 +12,7 @@ import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell } from 'recharts'
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
-import html2canvas from "html2canvas" // NOUVEAU: Import pour la capture d'image
+import { toPng } from "html-to-image" // NOUVEL OUTIL BEAUCOUP PLUS FIABLE
 
 // --- CONFIGURATION ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -244,21 +244,17 @@ export default function AdminDashboard() {
   const groupAvgCred = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.credibility, 0) / comparisonData.length) : 0
   const groupAvgConv = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conviction, 0) / comparisonData.length) : 0
 
-  // --- NOUVEAU : EXPORTS IMAGES (PNG) ---
+  // --- EXPORTS IMAGES (PNG) AVEC HTML-TO-IMAGE ---
   const handleExportChartImage = async () => {
     if (!chartRef.current) return
     try {
-      const canvas = await html2canvas(chartRef.current, { backgroundColor: "#ffffff", scale: 2 })
-      const dataUrl = canvas.toDataURL("image/png")
+      const dataUrl = await toPng(chartRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 })
       const link = document.createElement("a")
       link.href = dataUrl
       link.download = `Analyse_Temporelle_${selectedSession?.first_name || 'Export'}.png`
-      
-      // AJOUTS OBLIGATOIRES POUR LES NAVIGATEURS MODERNES
-      document.body.appendChild(link) 
+      document.body.appendChild(link)
       link.click()
-      document.body.removeChild(link) 
-      
+      document.body.removeChild(link)
     } catch (err) {
       console.error("Erreur lors de l'export de l'image du graphique :", err)
       alert("Erreur lors de la création de l'image.")
@@ -268,22 +264,19 @@ export default function AdminDashboard() {
   const handleExportTableImage = async () => {
     if (!tableRef.current) return
     try {
-      const canvas = await html2canvas(tableRef.current, { backgroundColor: "#ffffff", scale: 2 })
-      const dataUrl = canvas.toDataURL("image/png")
+      const dataUrl = await toPng(tableRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 })
       const link = document.createElement("a")
       link.href = dataUrl
       link.download = `Donnees_Detaillees_${selectedSession?.first_name || 'Export'}.png`
-      
-      // AJOUTS OBLIGATOIRES POUR LES NAVIGATEURS MODERNES
-      document.body.appendChild(link) 
+      document.body.appendChild(link)
       link.click()
-      document.body.removeChild(link) 
-      
+      document.body.removeChild(link)
     } catch (err) {
       console.error("Erreur lors de l'export de l'image du tableau :", err)
       alert("Erreur lors de la création de l'image.")
     }
   }
+
   // --- EXPORTS CSV ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
