@@ -12,7 +12,7 @@ import Link from "next/link"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell } from 'recharts'
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
-import { toPng } from "html-to-image" // NOUVEL OUTIL BEAUCOUP PLUS FIABLE
+import { toPng } from "html-to-image"
 
 // --- CONFIGURATION ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -121,7 +121,6 @@ export default function AdminDashboard() {
   }
 
   // --- GESTION MULTI-SELECTION & FILTRE ---
-  
   const filteredSessions = sessions.filter(session => {
       const fullName = `${session.first_name} ${session.last_name}`.toLowerCase()
       const clientId = (session.client_id || "").toLowerCase()
@@ -245,6 +244,22 @@ export default function AdminDashboard() {
   const groupAvgConv = comparisonData.length ? Math.round(comparisonData.reduce((acc, curr) => acc + curr.conviction, 0) / comparisonData.length) : 0
 
   // --- EXPORTS IMAGES (PNG) AVEC HTML-TO-IMAGE ---
+  const handleExportChartImage = async () => {
+    if (!chartRef.current) return
+    try {
+      const dataUrl = await toPng(chartRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 })
+      const link = document.createElement("a")
+      link.href = dataUrl
+      link.download = `Analyse_Temporelle_${selectedSession?.first_name || 'Export'}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (err) {
+      console.error("Erreur lors de l'export de l'image du graphique :", err)
+      alert("Erreur lors de la création de l'image.")
+    }
+  }
+
   const handleExportTableImage = async () => {
     if (!tableRef.current) return
     try {
@@ -252,11 +267,11 @@ export default function AdminDashboard() {
       const originalMaxHeight = tableRef.current.style.maxHeight
       const originalOverflow = tableRef.current.style.overflow
 
-      // 2. Enlever les limites pour afficher le tableau en entier
+      // 2. Enlever les limites pour afficher le tableau en entier (permet la capture)
       tableRef.current.style.maxHeight = 'none'
       tableRef.current.style.overflow = 'visible'
 
-      // Petit temps de pause pour laisser le navigateur dessiner la grande table
+      // Petit temps de pause pour laisser React/navigateur dessiner la grande table
       await new Promise(resolve => setTimeout(resolve, 100))
 
       // 3. Prendre la photo
@@ -268,26 +283,10 @@ export default function AdminDashboard() {
       link.click()
       document.body.removeChild(link)
 
-      // 4. Remettre le tableau normal (avec le scroll)
+      // 4. Remettre le tableau normal (avec le scroll limitant)
       tableRef.current.style.maxHeight = originalMaxHeight
       tableRef.current.style.overflow = originalOverflow
 
-    } catch (err) {
-      console.error("Erreur lors de l'export de l'image du tableau :", err)
-      alert("Erreur lors de la création de l'image.")
-    }
-  }
-
-  const handleExportTableImage = async () => {
-    if (!tableRef.current) return
-    try {
-      const dataUrl = await toPng(tableRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 })
-      const link = document.createElement("a")
-      link.href = dataUrl
-      link.download = `Donnees_Detaillees_${selectedSession?.first_name || 'Export'}.png`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
     } catch (err) {
       console.error("Erreur lors de l'export de l'image du tableau :", err)
       alert("Erreur lors de la création de l'image.")
