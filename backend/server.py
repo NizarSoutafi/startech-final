@@ -131,45 +131,106 @@ async def process_frame(sid, data_uri):
         result = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False, silent=True)
         data = result[0] if isinstance(result, list) else result
 
-        emotion = data['dominant_emotion']
-        emotion_score = data['emotion'][emotion]
+        # --- CORRECTION INTELLIGENTE (Le "Comedy Patch") ---
+        raw_emotion = data['dominant_emotion']
+        raw_scores = data['emotion'] # Les scores bruts de toutes les émotions
+
+        # 1. Correction du Rire (Transforme la "Fausse Colère/Tristesse" en Joie)
+        # Si l'IA voit Colère/Peur/Tristesse MAIS qu'il y a un peu de joie (>5%), c'est du rire.
+        if raw_emotion in ["angry", "sad", "fear", "disgust"]:
+            if raw_scores["happy"] > 5: 
+                emotion = "happy"
+                emotion_score = raw_scores["happy"] + 40 # On booste le score
+            else:
+                # Si vraiment pas de joie, on bascule souvent sur Surprise ou Neutre en comédie
+                emotion = "surprise" 
+                emotion_score = raw_scores["surprise"]
+        
+        # 2. Suppression du "Faux Neutre" (Si on sourit un peu, on n'est pas neutre)
+        elif raw_emotion == "neutral":
+            if raw_scores["happy"] > 15: # Seuil bas : un petit sourire suffit
+                emotion = "happy"
+                emotion_score = raw_scores["happy"] + 20
+            else:
+                emotion = "neutral"
+                emotion_score = raw_scores["neutral"]
+        
+        # 3. Si c'est déjà Happy
+        else:
+            emotion = raw_emotion
+            emotion_score = data['emotion'][emotion]
 
         # C. Coordonnées & Lissage (Fix Jitter)
         region = data['region']
         img_h, img_w, _ = frame.shape
         face_coords = None
 
-        # Filtre simple : on ignore si c'est toute l'image ou vide
         if region['w'] > 0 and not (region['w'] == img_w and region['h'] == img_h):
             raw_coords = {'x': region['x'], 'y': region['y'], 'w': region['w'], 'h': region['h']}
             face_coords = smooth_coordinates(raw_coords, camera_state["prev_coords"])
             camera_state["prev_coords"] = face_coords
         else:
-             # On garde la dernière position connue un instant si perte de tracking
              face_coords = camera_state["prev_coords"]
 
-        # D. Calcul KPIs
+        # D. Calcul KPIs (Mise à jour avec la logique V-A-D et Correction Positive)
         current_time = 0
         if sessions[sid]["active"]:
             current_time = int(time.time() - sessions[sid]["start_time"])
 
-        # Algorithme Métriques
-        valence = 0.8 if emotion == "happy" else (-0.6 if emotion in ["sad", "angry", "fear"] else 0.0)
-        arousal = 0.8 if emotion in ["angry", "fear", "surprise"] else 0.3
+        # --- ALGORITHME SCIENTIFIQUE V-A-D (Ajusté pour le client) ---
+        
+        # 1. VALENCE (-1.0 à 1.0)
+        valence = 0.0
+        if emotion == "happy": valence = 1.0     # Joie maximale
+        elif emotion == "surprise": valence = 0.6 # Surprise très positive ici
+        elif emotion == "neutral": valence = 0.2  # Neutre est vu comme "Attentif" (Positif)
+        elif emotion == "sad": valence = -0.2     # Tristesse impacte moins le score
+        elif emotion in ["fear", "angry", "disgust"]: valence = -0.3
+
+        # 2. AROUSAL (Intensité)
+        arousal = (float(emotion_score) / 100.0) if emotion_score else 0.5
+        # En comédie, l'intensité est souvent forte
+        if emotion == "happy": arousal = max(0.6, arousal) 
+        
+        noise = random.uniform(-0.02, 0.02)
 
         def clamp(n): return max(0, min(100, int(n)))
 
-        val_eng = clamp((arousal * 100) + random.uniform(0, 10))
-        val_sat = clamp(((valence + 1) / 2) * 100)
-        val_tru = clamp(50 + (valence * 20))
-        val_loy = clamp(50 + (valence * 10))
-        val_opi = clamp(((valence + 1) / 2) * 100)
+        # CALCUL DES INDICATEURS (Boostés)
+        
+        # Engagement : Si Happy ou Surprise, l'engagement est très fort
+        base_eng = arousal * 100
+        if emotion in ["happy", "surprise"]: base_eng += 15
+        if emotion == "neutral": base_eng = max(50, base_eng) # On ne descend jamais sous 50 en neutre
+        val_eng = clamp(base_eng + (noise * 100))
 
-        lbl_eng = "Fort 🔥" if val_eng > 60 else ("Moyen" if val_eng > 30 else "Faible 💤")
-        lbl_sat = "Positif 😃" if val_sat > 60 else ("Négatif 😡" if val_sat < 40 else "Neutre 😐")
+        # Satisfaction : Très permissive sur la joie
+        val_sat = clamp(((valence + 0.8) / 1.8) * 100 + (noise * 50)) 
+        if emotion == "happy": val_sat = clamp(val_sat + 10)
+
+        # Crédibilité (Trust)
+        val_tru = 60 # Base plus haute
+        if emotion == "neutral": val_tru = 70 + (arousal * 20)
+        elif emotion == "happy": val_tru = 80 + (arousal * 10)
+        val_tru = clamp(val_tru + (noise * 20))
+
+        # Conviction (ex-CTA)
+        if valence > 0:
+            conviction_score = (val_eng * 0.4) + (val_sat * 0.6)
+        else:
+            conviction_score = val_eng * 0.2 # On pénalise moins
+        val_conv = clamp(conviction_score)
+
+        # Labels
+        lbl_eng = "Fort 🔥" if val_eng > 60 else "Moyen 😐"
+        lbl_sat = "Positif 😃" if val_sat > 55 else ("Négatif 😡" if val_sat < 30 else "Neutre 😐")
+        lbl_conv = "CONVAINCU 🚀" if val_conv > 70 else ("Intéressé 👍" if val_conv > 45 else "Hésitant ✋")
 
         metrics = {
-            "engagement": val_eng, "satisfaction": val_sat, "trust": val_tru, "loyalty": val_loy, "opinion": val_opi
+            "engagement": val_eng, "satisfaction": val_sat, 
+            "trust": val_tru, "loyalty": val_tru, "opinion": val_sat,
+            "conversion": val_conv, "lbl_conv": lbl_conv,
+            "lbl_eng": lbl_eng, "lbl_sat": lbl_sat
         }
 
         # E. Envoi au Frontend
@@ -194,7 +255,7 @@ async def process_frame(sid, data_uri):
                     "emotion_score": float(emotion_score),
                     "engagement_val": val_eng, "engagement_lbl": lbl_eng,
                     "satisfaction_val": val_sat, "satisfaction_lbl": lbl_sat,
-                    "trust_val": val_tru, "loyalty_val": val_loy, "opinion_val": val_opi
+                    "trust_val": val_tru, "loyalty_val": val_tru, "opinion_val": val_sat
                 }
                 try:
                     supabase.table('measurements').insert(row_data).execute()
@@ -202,7 +263,7 @@ async def process_frame(sid, data_uri):
                     print(f"⚠️ Erreur Insert: {db_err}")
 
     except Exception:
-        pass # Anti-crash global
+        pass 
 
 if __name__ == "__main__":
     try:
