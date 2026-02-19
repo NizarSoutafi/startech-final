@@ -50,7 +50,7 @@ export default function AdminDashboard() {
   const [measurements, setMeasurements] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   
-  // --- STATES SEARCH & SELECTION ---
+  // --- STATES SEARCH, SELECTION & TRASH ---
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
@@ -59,8 +59,9 @@ export default function AdminDashboard() {
   const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A")
   const [emotionDistribution, setEmotionDistribution] = useState<any[]>([])
   const [isComparing, setIsComparing] = useState(false)
+  const [isTrashView, setIsTrashView] = useState(false) // NOUVEAU : État pour la corbeille
 
-  // NOUVEAU : Références pour capturer les images
+  // Références pour capturer les images
   const chartRef = useRef<HTMLDivElement>(null)
   const tableRef = useRef<HTMLDivElement>(null)
 
@@ -74,11 +75,11 @@ export default function AdminDashboard() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) fetchSessions()
+      if (session) fetchSessions(false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) fetchSessions()
+      if (session) fetchSessions(false)
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -98,14 +99,17 @@ export default function AdminDashboard() {
   }
 
   // --- API CALLS ---
-  const fetchSessions = async () => {
+  // MODIFIÉ : fetchSessions prend maintenant en compte si on veut la corbeille ou non
+  const fetchSessions = async (fetchTrash = isTrashView) => {
     setIsLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/sessions`)
+      const endpoint = fetchTrash ? '/api/trash' : '/api/sessions'
+      const res = await fetch(`${API_URL}${endpoint}`)
       const data = await res.json()
       setSessions(data || [])
       setSelectedIds([])
       setComparisonMode(false)
+      setSelectedSession(null)
     } catch (e) { console.error(e) } finally { setIsLoading(false) }
   }
 
@@ -141,7 +145,7 @@ export default function AdminDashboard() {
 
   const handleDelete = async (e: React.MouseEvent, sessionId: number) => {
     e.stopPropagation()
-    if (!confirm("Supprimer définitivement ?")) return
+    if (!confirm("Déplacer dans la corbeille ?")) return
     try {
       await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: 'DELETE' })
       setSessions(prev => prev.filter(s => s.id !== sessionId))
@@ -151,7 +155,7 @@ export default function AdminDashboard() {
   }
 
   const handleBulkDelete = async () => {
-      if (!confirm(`Supprimer ces ${selectedIds.length} sessions ?`)) return
+      if (!confirm(`Déplacer ces ${selectedIds.length} sessions dans la corbeille ?`)) return
       setIsBulkDeleting(true)
       try {
           await Promise.all(selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}`, { method: 'DELETE' })))
@@ -159,6 +163,28 @@ export default function AdminDashboard() {
           setSelectedIds([])
           setSelectedSession(null)
       } catch (e) { alert("Erreur suppression masse") } finally { setIsBulkDeleting(false) }
+  }
+
+  // NOUVEAU : Restaurer un test
+  const handleRestore = async (e: React.MouseEvent, sessionId: number) => {
+    e.stopPropagation()
+    try {
+      await fetch(`${API_URL}/api/sessions/${sessionId}/restore`, { method: 'POST' })
+      setSessions(prev => prev.filter(s => s.id !== sessionId))
+      setSelectedIds(prev => prev.filter(id => id !== sessionId))
+      if (selectedSession?.id === sessionId) { setSelectedSession(null); setMeasurements([]) }
+    } catch (e) { alert("Erreur lors de la restauration") }
+  }
+
+  // NOUVEAU : Restaurer plusieurs tests
+  const handleBulkRestore = async () => {
+      setIsBulkDeleting(true)
+      try {
+          await Promise.all(selectedIds.map(id => fetch(`${API_URL}/api/sessions/${id}/restore`, { method: 'POST' })))
+          setSessions(prev => prev.filter(s => !selectedIds.includes(s.id)))
+          setSelectedIds([])
+          setSelectedSession(null)
+      } catch (e) { alert("Erreur restauration masse") } finally { setIsBulkDeleting(false) }
   }
 
   // --- LOGIQUE DE COMPARAISON ---
@@ -263,18 +289,14 @@ export default function AdminDashboard() {
   const handleExportTableImage = async () => {
     if (!tableRef.current) return
     try {
-      // 1. Sauvegarder les styles actuels pour pouvoir les remettre
       const originalMaxHeight = tableRef.current.style.maxHeight
       const originalOverflow = tableRef.current.style.overflow
 
-      // 2. Enlever les limites pour afficher le tableau en entier (permet la capture)
       tableRef.current.style.maxHeight = 'none'
       tableRef.current.style.overflow = 'visible'
 
-      // Petit temps de pause pour laisser React/navigateur dessiner la grande table
       await new Promise(resolve => setTimeout(resolve, 100))
 
-      // 3. Prendre la photo
       const dataUrl = await toPng(tableRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 })
       const link = document.createElement("a")
       link.href = dataUrl
@@ -283,17 +305,14 @@ export default function AdminDashboard() {
       link.click()
       document.body.removeChild(link)
 
-      // 4. Remettre le tableau normal (avec le scroll limitant)
       tableRef.current.style.maxHeight = originalMaxHeight
       tableRef.current.style.overflow = originalOverflow
-
     } catch (err) {
       console.error("Erreur lors de l'export de l'image du tableau :", err)
       alert("Erreur lors de la création de l'image.")
     }
   }
 
-  // --- EXPORTS CSV ---
   // --- EXPORTS CSV ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
@@ -302,10 +321,7 @@ export default function AdminDashboard() {
     csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Intention de Compréhension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Avis Global\n`
     measurements.forEach((m) => {
         const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
-        
-        // CORRECTION : On formate le score IA pour Excel (2 décimales et une virgule)
         const formattedScoreIA = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'
-        
         const row = [m.session_time, m.emotion, formattedScoreIA, Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(m.loyalty_val), conv, getAvisLabel(m.opinion_val)].join(separator)
         csvContent += row + "\n"
     })
@@ -348,12 +364,12 @@ export default function AdminDashboard() {
     doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 30, 2, 2, 'F')
     doc.setFont("helvetica", "bold"); doc.text("SYNTHÈSE", 105, 58, { align: "center" })
     doc.setFont("helvetica", "normal")
-    doc.text(`Intention de Compréhension : ${avgEngagement}%`, 25, 68); doc.text(`Satisfaction : ${avgSatisfaction}%`, 115, 68) // Ajustement positionnement
+    doc.text(`Intention de Compréhension : ${avgEngagement}%`, 25, 68); doc.text(`Satisfaction : ${avgSatisfaction}%`, 115, 68) 
     
     doc.setTextColor(147, 51, 234); 
-    doc.text(`Crédibilité : ${avgCredibility}%`, 25, 74) // Ajustement positionnement
+    doc.text(`Crédibilité : ${avgCredibility}%`, 25, 74) 
     doc.setTextColor(220, 38, 38); 
-    doc.text(`Conviction : ${avgConviction}%`, 115, 74) // Ajustement positionnement
+    doc.text(`Conviction : ${avgConviction}%`, 115, 74) 
     doc.setTextColor(0, 0, 0)
 
     autoTable(doc, { 
@@ -424,7 +440,7 @@ export default function AdminDashboard() {
         <div><h1 className="text-3xl font-bold tracking-tight">STARTECH <span className="text-green-600">ADMIN</span></h1><p className="text-slate-500">Supervision & Gestion de Masse</p></div>
         <div className="flex gap-4 items-center">
           <Link href="/"><Button variant="outline" className="gap-2"><ArrowLeft className="w-4 h-4" /> Dashboard</Button></Link>
-          <Button onClick={fetchSessions} className="bg-slate-900 text-white gap-2"><RefreshCcw className="w-4 h-4" /> Actualiser</Button>
+          <Button onClick={() => fetchSessions(isTrashView)} className="bg-slate-900 text-white gap-2"><RefreshCcw className="w-4 h-4" /> Actualiser</Button>
           <Button onClick={handleLogout} variant="destructive" size="icon"><LogOut className="w-4 h-4" /></Button>
         </div>
       </header>
@@ -433,7 +449,16 @@ export default function AdminDashboard() {
         {/* SIDEBAR */}
         <div className="lg:col-span-3 space-y-4">
           <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
+            
             <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50 p-4 space-y-3">
+              {/* NOUVEAU : Toggle Corbeille / Sessions */}
+              <div className="flex justify-between items-center mb-1">
+                  <span className="text-sm font-bold text-slate-700">{isTrashView ? "🗑️ Corbeille" : "📁 Sessions"}</span>
+                  <Button size="sm" variant="outline" className="h-7 text-xs text-slate-600" onClick={() => { setIsTrashView(!isTrashView); fetchSessions(!isTrashView); }}>
+                      {isTrashView ? "Retour" : "Corbeille"}
+                  </Button>
+              </div>
+
               <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
                       <Button size="icon" variant="ghost" className="h-6 w-6" onClick={selectAll}>
@@ -443,13 +468,18 @@ export default function AdminDashboard() {
                   </div>
                   <div className="flex gap-1">
                     {/* BOUTON COMPARER */}
-                    {selectedIds.length > 1 && (
+                    {!isTrashView && selectedIds.length > 1 && (
                       <Button size="sm" variant="default" onClick={handleCompare} className="h-7 text-xs px-2 bg-blue-600 hover:bg-blue-700 text-white" title="Comparer">
                           <PieChart className="w-3 h-3 mr-1" /> Comparer
                       </Button>
                     )}
+                    {/* BOUTONS SUPPRIMER / RESTAURER MASSE */}
                     {selectedIds.length > 0 && (
-                        <Button size="sm" variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting} className="h-7 text-xs px-2"><Trash2 className="w-3 h-3" /></Button>
+                        isTrashView ? (
+                            <Button size="sm" variant="default" onClick={handleBulkRestore} disabled={isBulkDeleting} className="h-7 text-xs px-2 bg-green-600 hover:bg-green-700 text-white"><RefreshCcw className="w-3 h-3 mr-1" /> Restaurer</Button>
+                        ) : (
+                            <Button size="sm" variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting} className="h-7 text-xs px-2"><Trash2 className="w-3 h-3" /></Button>
+                        )
                     )}
                   </div>
               </div>
@@ -477,7 +507,12 @@ export default function AdminDashboard() {
                         <div className="pl-6">
                             <div className="flex justify-between items-center mb-1">
                               <span className="font-bold text-slate-900 text-sm truncate w-24">{session.first_name} {session.last_name}</span>
-                              <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleDelete(e, session.id)}><X className="w-3 h-3" /></Button>
+                              {/* MODIFIÉ : Affiche Restaurer ou Supprimer selon la vue */}
+                              {isTrashView ? (
+                                  <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-green-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleRestore(e, session.id)} title="Restaurer"><RefreshCcw className="w-3 h-3" /></Button>
+                              ) : (
+                                  <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleDelete(e, session.id)} title="Déplacer vers la corbeille"><X className="w-3 h-3" /></Button>
+                              )}
                             </div>
                             <div className="text-[10px] text-slate-500 flex justify-between items-center">
                               <span>{formatDate(session.created_at)}</span>
@@ -648,11 +683,12 @@ export default function AdminDashboard() {
                         <tbody className="divide-y divide-slate-100">
                         {measurements.map((m, i) => {
                             const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
+                            const formattedScoreIA = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'
                             return (
                             <tr key={i} className="hover:bg-slate-50 transition-colors">
                             <td className="px-4 py-3 font-mono font-bold text-slate-700">{m.session_time}s</td>
                             <td className="px-4 py-3"><Badge variant="outline">{m.emotion?.toUpperCase()}</Badge></td>
-                            <td className="px-4 py-3 text-slate-500">{m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'}</td>
+                            <td className="px-4 py-3 text-slate-500">{formattedScoreIA}</td>
                             <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.engagement_val)}%</td>
                             <td className="px-4 py-3 font-bold text-slate-900">{Math.round(m.satisfaction_val)}%</td>
                             <td className="px-4 py-3 font-bold text-purple-700 bg-purple-50/30">{Math.round(m.loyalty_val)}%</td>
