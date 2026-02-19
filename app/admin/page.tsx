@@ -294,6 +294,7 @@ export default function AdminDashboard() {
   }
 
   // --- EXPORTS CSV ---
+  // --- EXPORTS CSV ---
   const handleExportCSV = () => {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
@@ -301,7 +302,11 @@ export default function AdminDashboard() {
     csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Intention de Compréhension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Avis Global\n`
     measurements.forEach((m) => {
         const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
-        const row = [m.session_time, m.emotion, m.emotion_score, Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(m.loyalty_val), conv, getAvisLabel(m.opinion_val)].join(separator)
+        
+        // CORRECTION : On formate le score IA pour Excel (2 décimales et une virgule)
+        const formattedScoreIA = m.emotion_score ? Number(m.emotion_score).toFixed(2).replace('.', ',') : '-'
+        
+        const row = [m.session_time, m.emotion, formattedScoreIA, Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(m.loyalty_val), conv, getAvisLabel(m.opinion_val)].join(separator)
         csvContent += row + "\n"
     })
     const encodedUri = encodeURI(csvContent)
