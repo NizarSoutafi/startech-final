@@ -298,7 +298,7 @@ export default function AdminDashboard() {
     if (!measurements.length || !selectedSession) return
     const separator = ";"
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Avis Global\n`
+    csvContent += `Temps${separator}Emotion${separator}Score IA${separator}Intention de Compréhension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Avis Global\n`
     measurements.forEach((m) => {
         const conv = Math.round(calculateConviction(m.engagement_val, m.satisfaction_val))
         const row = [m.session_time, m.emotion, m.emotion_score, Math.round(m.engagement_val), Math.round(m.satisfaction_val), Math.round(m.loyalty_val), conv, getAvisLabel(m.opinion_val)].join(separator)
@@ -320,7 +320,7 @@ export default function AdminDashboard() {
     emotionDistribution.forEach(e => { csvContent += `${e.name}${separator}${e.percent}%\n` })
     csvContent += "\n"
 
-    csvContent += `DETAILS PROFILS\nNom${separator}Comprehension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Duree (s)\n`
+    csvContent += `DETAILS PROFILS\nNom${separator}Intention de Compréhension${separator}Satisfaction${separator}Credibilite${separator}Conviction${separator}Duree (s)\n`
     comparisonData.forEach((d) => {
         const row = [d.name, d.engagement, d.satisfaction, d.credibility, d.conviction, d.duration].join(separator)
         csvContent += row + "\n"
@@ -343,16 +343,16 @@ export default function AdminDashboard() {
     doc.setFillColor(245, 245, 245); doc.roundedRect(14, 50, 182, 30, 2, 2, 'F')
     doc.setFont("helvetica", "bold"); doc.text("SYNTHÈSE", 105, 58, { align: "center" })
     doc.setFont("helvetica", "normal")
-    doc.text(`Compréhension : ${avgEngagement}%`, 25, 68); doc.text(`Satisfaction : ${avgSatisfaction}%`, 80, 68)
+    doc.text(`Intention de Compréhension : ${avgEngagement}%`, 25, 68); doc.text(`Satisfaction : ${avgSatisfaction}%`, 115, 68) // Ajustement positionnement
     
     doc.setTextColor(147, 51, 234); 
-    doc.text(`Crédibilité : ${avgCredibility}%`, 135, 68)
+    doc.text(`Crédibilité : ${avgCredibility}%`, 25, 74) // Ajustement positionnement
     doc.setTextColor(220, 38, 38); 
-    doc.text(`Conviction : ${avgConviction}%`, 135, 74)
+    doc.text(`Conviction : ${avgConviction}%`, 115, 74) // Ajustement positionnement
     doc.setTextColor(0, 0, 0)
 
     autoTable(doc, { 
-        head: [['T(s)', 'Emotion', 'Compr.', 'Satis.', 'Crédib.', 'Convict.']], 
+        head: [['T(s)', 'Emotion', 'Int. Compr.', 'Satis.', 'Crédib.', 'Convict.']], 
         body: measurements.map(m => [
             m.session_time, 
             m.emotion, 
@@ -380,12 +380,12 @@ export default function AdminDashboard() {
     doc.setFillColor(245, 245, 245); doc.roundedRect(14, 45, 182, 35, 2, 2, 'F')
     doc.setFont("helvetica", "bold"); doc.text("SYNTHÈSE GLOBALE", 105, 53, { align: "center" })
     doc.setFont("helvetica", "normal")
-    doc.text(`Compréhension : ${groupAvgEng}%`, 25, 63); doc.text(`Satisfaction : ${groupAvgSat}%`, 80, 63)
+    doc.text(`Intention de Compréhension : ${groupAvgEng}%`, 25, 63); doc.text(`Satisfaction : ${groupAvgSat}%`, 115, 63)
     
     doc.setFont("helvetica", "bold"); doc.setTextColor(22, 163, 74) 
-    doc.text(`Dominante : ${stripEmojis(groupDominantEmotion)}`, 135, 63)
+    doc.text(`Dominante : ${stripEmojis(groupDominantEmotion)}`, 25, 70)
     doc.setTextColor(147, 51, 234); 
-    doc.text(`Crédibilité : ${groupAvgCred}%`, 80, 70)
+    doc.text(`Crédibilité : ${groupAvgCred}%`, 85, 70)
     doc.setTextColor(220, 38, 38); 
     doc.text(`Conviction : ${groupAvgConv}%`, 135, 70)
     doc.setTextColor(0, 0, 0)
@@ -402,7 +402,7 @@ export default function AdminDashboard() {
     
     const tableRows = comparisonData.map(d => [d.name, d.engagement + '%', d.satisfaction + '%', d.credibility + '%', d.conviction + '%'])
     autoTable(doc, { 
-        head: [['Nom', 'Compréhension', 'Satisfaction', 'Crédibilité', 'Conviction']], 
+        head: [['Nom', 'Intention de Compréhension', 'Satisfaction', 'Crédibilité', 'Conviction']], 
         body: tableRows, startY: finalY, theme: 'grid', 
         headStyles: { fillColor: [59, 130, 246] }
     })
@@ -509,7 +509,7 @@ export default function AdminDashboard() {
 
                 {/* KPIS GLOBAUX */}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-blue-500 uppercase">Compréhension</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
+                    <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-blue-500 uppercase">Intention de Compréhension</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-blue-900">{groupAvgEng}%</div></CardContent></Card>
                     <Card className="bg-blue-50 border-blue-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-blue-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-blue-900">{groupAvgSat}%</div></CardContent></Card>
                     <Card className="bg-purple-50 border-purple-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-purple-600 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Crédibilité</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-purple-800">{groupAvgCred}%</div></CardContent></Card>
                     <Card className="bg-orange-50 border-orange-100 shadow-sm"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Conviction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-2xl font-bold text-orange-800">{groupAvgConv}%</div></CardContent></Card>
@@ -569,7 +569,7 @@ export default function AdminDashboard() {
                                 <YAxis domain={[0, 100]} />
                                 <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '8px' }} />
                                 <Legend />
-                                <Bar dataKey="engagement" name="Compréhension" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="engagement" name="Intention de Compréhension" fill="#22c55e" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="satisfaction" name="Satisfaction" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="credibility" name="Crédibilité" fill="#a855f7" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="conviction" name="Conviction" fill="#f97316" radius={[4, 4, 0, 0]} />
@@ -583,7 +583,7 @@ export default function AdminDashboard() {
             <>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <Card className="bg-white border-slate-200 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-slate-500 uppercase">Durée</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-xl font-bold text-slate-900">{measurements.length > 0 ? measurements[measurements.length - 1].session_time : 0}s</div></CardContent></Card>
-                <Card className="bg-white border-slate-200 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-slate-500 uppercase">Compréhension</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className={`text-xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
+                <Card className="bg-white border-slate-200 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-slate-500 uppercase">Intention de Compréhension</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className={`text-xl font-bold ${avgEngagement > 60 ? "text-green-600" : "text-orange-500"}`}>{avgEngagement}%</div></CardContent></Card>
                 <Card className="bg-white border-slate-200 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-slate-500 uppercase">Satisfaction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className={`text-xl font-bold ${avgSatisfaction > 60 ? "text-green-600" : "text-orange-500"}`}>{avgSatisfaction}%</div></CardContent></Card>
                 <Card className="bg-purple-50 border-purple-100 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-purple-600 uppercase flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> Crédibilité</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-xl font-bold text-purple-700">{avgCredibility}%</div></CardContent></Card>
                 <Card className="bg-orange-50 border-orange-100 shadow-sm col-span-1"><CardHeader className="pb-2 p-3"><CardTitle className="text-[10px] text-orange-600 uppercase flex items-center gap-1"><ShoppingCart className="w-3 h-3"/> Conviction</CardTitle></CardHeader><CardContent className="p-3 pt-0"><div className="text-xl font-bold text-orange-700">{avgConviction}%</div></CardContent></Card>
@@ -607,7 +607,7 @@ export default function AdminDashboard() {
                         <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                         <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px' }} />
-                        <Area type="monotone" dataKey="engagement_val" name="Compréhension" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
+                        <Area type="monotone" dataKey="engagement_val" name="Intention de Compréhension" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorEng)" />
                         <Area type="monotone" dataKey="satisfaction_val" name="Satisfaction" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorSat)" />
                         </AreaChart>
                     </ResponsiveContainer>
@@ -633,7 +633,7 @@ export default function AdminDashboard() {
                             <th className="px-4 py-3 font-bold whitespace-nowrap">Temps</th>
                             <th className="px-4 py-3 font-bold whitespace-nowrap">Emotion</th>
                             <th className="px-4 py-3 font-bold whitespace-nowrap">Score IA</th>
-                            <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Compréhension</th>
+                            <th className="px-4 py-3 font-bold whitespace-nowrap text-green-700">Intention de Compréhension</th>
                             <th className="px-4 py-3 font-bold whitespace-nowrap">Satisfaction</th>
                             <th className="px-4 py-3 font-bold whitespace-nowrap text-purple-700">Crédibilité</th>
                             <th className="px-4 py-3 font-bold whitespace-nowrap text-orange-600">Conviction</th>
