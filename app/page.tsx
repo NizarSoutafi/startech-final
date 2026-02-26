@@ -1,304 +1,231 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import MetricsPanel from "@/components/neurolink/metrics-panel"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { io } from "socket.io-client"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon, FileText, Music, FileSpreadsheet, File } from "lucide-react"
-import { io, Socket } from "socket.io-client"
-import Link from "next/link"
+import { Card, CardContent } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Video, Mic, StopCircle, Play, Loader2, Camera, User, Smile } from "lucide-react"
 
-// ADRESSE FIXE
-const API_URL = "https://persee-tech-startech-api.hf.space"
+// URL du Backend (Hugging Face)
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-interface UserInfo { firstName: string; lastName: string; clientId: string }
-
-export default function Dashboard() {
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
-  const [socket, setSocket] = useState<Socket | null>(null)
+export default function MobileRecorder() {
+  // --- STATES ---
+  const [step, setStep] = useState<"form" | "recording" | "finished">("form")
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
+  const [clientId, setClientId] = useState("Demo Event")
+  
+  const [socket, setSocket] = useState<any>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
-  const [sessionTime, setSessionTime] = useState(0)
-  const [formData, setFormData] = useState({ firstName: "", lastName: "", clientId: "" })
-  
-  // --- MODIFICATION ICI : Ajout de conversion et lbl_conv ---
-  const [currentMetrics, setCurrentMetrics] = useState({ 
-    engagement: 0, 
-    satisfaction: 50, 
-    trust: 50, 
-    loyalty: 50, 
-    opinion: 50, 
-    conversion: 0,      // Nouveau KPI
-    lbl_conv: "En attente", // Nouveau Label
-    emotion: "neutral" 
-  })
-  
+  const [detectedEmotion, setDetectedEmotion] = useState<string>("...")
+  const [score, setScore] = useState(0)
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [faceCoords, setFaceCoords] = useState<any>(null)
-  const [cameraActive, setCameraActive] = useState(false)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  // --- ETATS MEDIA ---
-  const [mediaFile, setMediaFile] = useState<File | null>(null)
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
-  const [mediaType, setMediaType] = useState<'video' | 'image' | 'pdf' | 'audio' | 'csv' | 'excel' | 'other' | null>(null)
-  const [csvContent, setCsvContent] = useState<string[][]>([])
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
+  // --- 1. CONNEXION SOCKET ---
   useEffect(() => {
-    if (userInfo && !cameraActive) {
-      navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
-        .then(stream => { if (videoRef.current) { videoRef.current.srcObject = stream; setCameraActive(true) } })
-        .catch(err => console.error("Erreur Webcam:", err))
-    }
-  }, [userInfo, cameraActive])
-
-  useEffect(() => {
-    if (!userInfo) return;
+    const newSocket = io(API_URL, { transports: ["websocket"] })
     
-    const newSocket = io(API_URL, {
-        transports: ["websocket", "polling"],
-        path: "/socket.io/",
-        secure: true,
+    newSocket.on("connect", () => {
+      console.log("🟢 Connecté au serveur Mobile")
+      setIsConnected(true)
     })
-    
-    newSocket.on("connect", () => setIsConnected(true))
-    newSocket.on("disconnect", () => setIsConnected(false))
-    
+
     newSocket.on("metrics_update", (data: any) => {
-      setSessionTime(data.session_time); 
-      setIsRecording(data.is_recording)
-      setFaceCoords(data.face_coords)
-      
-      // --- MODIFICATION ICI : Récupération du score de conversion ---
-      const newMetrics = { 
-        emotion: data.emotion,
-        engagement: data.metrics.engagement, 
-        satisfaction: data.metrics.satisfaction,
-        trust: data.metrics.trust, 
-        loyalty: data.metrics.loyalty, 
-        opinion: data.metrics.opinion,
-        conversion: data.metrics.conversion || 0, // Nouveau
-        lbl_conv: data.metrics.lbl_conv || "Analysing..." // Nouveau
-      }
-      setCurrentMetrics(newMetrics)
+      // Feedback visuel immédiat pour la démo
+      setDetectedEmotion(data.emotion)
+      setScore(Math.round(data.metrics.satisfaction)) // On affiche la satisfaction comme "Score"
     })
 
     setSocket(newSocket)
+    return () => { newSocket.close() }
+  }, [])
 
-    const interval = setInterval(() => {
-        if (videoRef.current && canvasRef.current && newSocket.connected) {
-            const ctx = canvasRef.current.getContext('2d')
-            if (ctx) {
-                ctx.drawImage(videoRef.current, 0, 0, 480, 360)
-                const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.5)
-                newSocket.emit('process_frame', dataUrl)
-            }
-        }
-    }, 200)
-
-    return () => { clearInterval(interval); newSocket.close() }
-  }, [userInfo])
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setMediaFile(file)
-      const url = URL.createObjectURL(file)
-      setMediaUrl(url)
-      setCsvContent([])
-      const type = file.type; const name = file.name.toLowerCase()
-      if (type.startsWith('video/')) setMediaType('video')
-      else if (type.startsWith('image/')) setMediaType('image')
-      else if (type.startsWith('audio/')) setMediaType('audio')
-      else if (type === 'application/pdf') setMediaType('pdf')
-      else if (name.endsWith('.csv')) {
-          setMediaType('csv')
-          const reader = new FileReader()
-          reader.onload = (event) => {
-              const text = event.target?.result as string
-              const rows = text.split('\n').slice(0, 10).map(row => row.split(/[;,]/))
-              setCsvContent(rows)
-          }
-          reader.readAsText(file)
+  // --- 2. GESTION CAMÉRA (MOBILE FRONT) ---
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, // Force la caméra avant
+        audio: false 
+      })
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play()
       }
-      else if (name.endsWith('.xlsx') || name.endsWith('.xls')) setMediaType('excel')
-      else setMediaType('other')
+    } catch (err) {
+      alert("Impossible d'accéder à la caméra. Vérifiez les permissions.")
     }
   }
 
-  const handleLogin = (e: React.FormEvent) => { e.preventDefault(); if (formData.firstName && formData.lastName) setUserInfo(formData) }
-  
-  const handleStartStop = () => { 
-      if (socket && userInfo) { 
-          if (isRecording) {
-              socket.emit("stop_session")
-              setIsRecording(false) 
-          } else {
-              setSessionTime(0)
-              socket.emit("start_session", userInfo)
-              setIsRecording(true) 
-          }
-      } 
+  // --- 3. DÉMARRER SESSION ---
+  const handleStart = () => {
+    if (!firstName) return alert("Entrez un prénom !")
+    setStep("recording")
+    startCamera()
+
+    // Envoyer les infos au serveur
+    if (socket) {
+      socket.emit("start_session", { firstName, lastName, clientId })
+      
+      // Boucle d'envoi d'images (toutes les 200ms pour pas surcharger la 4G)
+      intervalRef.current = setInterval(() => {
+        sendFrame()
+      }, 200)
+    }
   }
 
-  const handleReset = () => { if (socket) socket.emit("stop_session"); setSessionTime(0); setCurrentMetrics(prev => ({ ...prev, engagement: 0, emotion: "neutral", conversion: 0 })) }
-  const handleLogout = () => { setUserInfo(null); setSessionTime(0); setCameraActive(false); if(socket) socket.disconnect() }
-  const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`
-  const getEmotionDisplay = (e: string) => { const map: any = { happy: "😄 JOIE", sad: "😢 TRISTESSE", angry: "😠 COLÈRE", surprise: "😲 SURPRISE", fear: "😨 PEUR", neutral: "😐 NEUTRE" }; return map[e] || e.toUpperCase() }
+  const sendFrame = () => {
+    if (!videoRef.current || !canvasRef.current || !socket) return
+    const ctx = canvasRef.current.getContext("2d")
+    if (!ctx) return
 
-  if (!userInfo) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden text-slate-900">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 via-slate-50 to-white opacity-80"></div>
-        <Card className="w-full max-w-md border-slate-200 bg-white shadow-2xl relative z-10">
-          <CardHeader className="text-center space-y-4">
-            <div className="mx-auto w-20 h-20 rounded-full bg-green-50 flex items-center justify-center border border-green-100 shadow-sm"><Fingerprint className="w-10 h-10 text-green-600" /></div>
-            <div><CardTitle className="text-3xl font-bold tracking-tight text-slate-900">STARTECH <span className="text-green-600">ID</span></CardTitle><CardDescription className="text-slate-500">Identification biométrique du sujet</CardDescription></div>
-          </CardHeader>
-          <form onSubmit={handleLogin}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2"><Label htmlFor="firstName" className="text-xs uppercase tracking-widest text-slate-500">Prénom</Label><Input id="firstName" placeholder="Ex: Jean" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} required /></div>
-              <div className="space-y-2"><Label htmlFor="lastName" className="text-xs uppercase tracking-widest text-slate-500">Nom</Label><Input id="lastName" placeholder="Ex: Dupont" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} required /></div>
-              <div className="space-y-2"><Label htmlFor="clientId" className="text-xs uppercase tracking-widest text-slate-500">Code Projet</Label><Input id="clientId" placeholder="Ex: PROJET-A12" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.clientId} onChange={e => setFormData({...formData, clientId: e.target.value})} /></div>
-            </CardContent>
-            <CardFooter><Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white h-12 text-lg font-bold shadow-lg shadow-green-200">INITIALISER SESSION</Button></CardFooter>
-          </form>
-        </Card>
-        <div className="absolute bottom-6 right-6 z-20"><Link href="/admin"><Button variant="ghost" className="text-slate-500 hover:text-slate-900 hover:bg-slate-200 text-xs gap-2"><Shield className="w-3 h-3" /> Accès Admin</Button></Link></div>
+    canvasRef.current.width = videoRef.current.videoWidth
+    canvasRef.current.height = videoRef.current.videoHeight
+    ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height)
+
+    const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.5) // Qualité moyenne pour vitesse
+    socket.emit("process_frame", dataUrl)
+  }
+
+  // --- 4. STOPPER SESSION ---
+  const handleStop = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    if (socket) socket.emit("stop_session")
+    
+    // Couper la caméra
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
+      tracks.forEach(track => track.stop())
+    }
+    
+    setStep("finished")
+  }
+
+  // --- EMOJI MAP ---
+  const getEmoji = (emo: string) => {
+    const map: any = { happy: "😁", surprise: "😲", neutral: "😐", sad: "😔", angry: "😡", fear: "😨", disgust: "🤢" }
+    return map[emo] || "🤔"
+  }
+
+  // --- RENDU : ÉCRAN 1 (FORMULAIRE) ---
+  if (step === "form") return (
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 text-center">
+      <div className="mb-8 animate-in zoom-in duration-500">
+        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Camera className="w-10 h-10 text-green-600" />
+        </div>
+        <h1 className="text-2xl font-bold text-slate-900">Startech <span className="text-green-600">Vision</span></h1>
+        <p className="text-slate-500 text-sm mt-2">Expérience Émotionnelle IA</p>
       </div>
-    )
-  }
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
-        <div className="flex h-16 items-center px-6 justify-between">
-           <div className="flex items-center gap-3 font-bold text-xl tracking-tight text-slate-900"><div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_15px_#22c55e] animate-pulse" />STARTECH <span className="text-slate-400 font-normal">VISION</span></div>
-           <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3 px-4 py-1.5 bg-slate-100 rounded-full border border-slate-200">
-                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-700 flex items-center justify-center text-xs font-bold text-white">{userInfo.firstName.charAt(0)}{userInfo.lastName.charAt(0)}</div>
-                 <div className="flex flex-col"><span className="text-sm font-bold text-slate-900 leading-none">{userInfo.firstName} {userInfo.lastName}</span><span className="text-[10px] text-slate-500 leading-none mt-1">{userInfo.clientId || "ID: GUEST"}</span></div>
-              </div>
-              <Button variant="ghost" size="sm" onClick={handleLogout} className="text-xs text-slate-500 hover:text-red-600 hover:bg-red-50">Sortir</Button>
-           </div>
-        </div>
-      </header>
+      <Card className="w-full max-w-sm border-0 shadow-xl bg-slate-50">
+        <CardContent className="p-6 space-y-4">
+          <div className="text-left space-y-2">
+            <label className="text-xs font-bold text-slate-500 uppercase">Prénom</label>
+            <Input 
+              placeholder="Ex: Nizar" 
+              value={firstName} 
+              onChange={e => setFirstName(e.target.value)}
+              className="h-12 text-lg bg-white"
+            />
+          </div>
+          <div className="text-left space-y-2">
+            <label className="text-xs font-bold text-slate-500 uppercase">Nom (Optionnel)</label>
+            <Input 
+              placeholder="Ex: Soutafi" 
+              value={lastName} 
+              onChange={e => setLastName(e.target.value)}
+              className="h-12 text-lg bg-white"
+            />
+          </div>
+          
+          <Button 
+            className="w-full h-14 text-lg font-bold bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200 rounded-xl mt-4"
+            onClick={handleStart}
+            disabled={!isConnected}
+          >
+            {isConnected ? "📸 COMMENCER LE TEST" : "Connexion..."}
+          </Button>
+          
+          {!isConnected && <p className="text-xs text-orange-500 animate-pulse">Connexion au serveur IA...</p>}
+        </CardContent>
+      </Card>
+      
+      <p className="mt-8 text-xs text-slate-400">Powered by Startech Vision © 2026</p>
+    </div>
+  )
 
-      <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto flex flex-col gap-6">
-        
-        {/* LIGNE HAUTE : CAMÉRA + MÉDIA */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
-            {/* 1. WEBCAM */}
-            <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none group h-[500px]">
-              <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
-              <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
-              <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
-              <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
-              <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-[0_0_20px_#22c55e] z-10 animate-[scan_3s_ease-in-out_infinite] transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} style={{ top: '0%' }} />
-              <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
-
-              <CardContent className="p-0 h-full relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
-                <canvas ref={canvasRef} width="480" height="360" className="hidden" />
-                <div className="absolute inset-0 w-full h-full relative">
-                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                    <div className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear shadow-[0_0_15px_#22c55e] ${faceCoords ? 'opacity-100' : 'opacity-0'}`} style={{ left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%', top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%', width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%', height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%', transform: 'scaleX(-1)' }}>
-                         <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
-                    </div>
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30"><Target className="w-64 h-64 text-white stroke-1" /></div>
-                
-                <div className="z-20 w-full px-8 pb-8 mt-auto absolute bottom-0">
-                  <div className="flex justify-between items-end mb-8">
-                    <div>
-                       <div className="flex items-center gap-2 mb-2">
-                           <Badge variant="outline" className={`px-3 py-1 border-none backdrop-blur-md ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}>
-                               <div className={`w-2 h-2 rounded-full mr-2 ${isRecording ? "bg-white" : "bg-slate-300"}`} />
-                               <span suppressHydrationWarning>{isRecording ? "ENREGISTREMENT" : "PRÊT"}</span>
-                           </Badge>
-                       </div>
-                       <div className="text-7xl font-mono font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">{formatTime(sessionTime)}</div>
-                    </div>
-                    <div className="text-right">
-                        <div className="bg-white/90 backdrop-blur-xl px-6 py-4 rounded-xl border border-white shadow-2xl">
-                            <span className="block text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Emotion Dominante</span>
-                            <span className="text-3xl font-bold text-slate-900 flex items-center justify-end gap-3" suppressHydrationWarning>{getEmotionDisplay(currentMetrics.emotion)}</span>
-                        </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center gap-8 pt-6 border-t border-white/20">
-                    <Button size="icon" variant="outline" onClick={handleReset} className="h-14 w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all"><RotateCcw className="h-5 w-5" /></Button>
-                    <Button onClick={handleStartStop} variant={isRecording ? "destructive" : "default"} className={`px-10 h-14 text-lg font-bold rounded-full transition-all hover:scale-105 ${!isRecording ? "bg-green-600 hover:bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)]" : "shadow-[0_0_20px_rgba(239,68,68,0.4)]"}`}>
-                        {isRecording ? <Square className="mr-2 h-5 w-5 fill-current" /> : <Play className="mr-2 h-5 w-5 fill-current" />}
-                        <span suppressHydrationWarning>{isRecording ? "STOP" : "DÉMARRER"}</span>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* 2. MEDIA */}
-            <Card className="border-slate-200 bg-white shadow-md flex flex-col h-[500px]">
-              <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
-                <div><CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2"><FileText className="w-4 h-4 text-green-600" /> Support de Test</CardTitle></div>
-                <div>
-                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*,audio/*,application/pdf,.csv,.xlsx,.xls" className="hidden" />
-                   <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="text-xs h-8 gap-2"><Upload className="w-3 h-3" /> Charger Média</Button>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 flex items-center justify-center bg-slate-100 flex-1 relative overflow-auto">
-                  {mediaUrl ? (
-                      mediaType === 'video' ? <video src={mediaUrl} controls className="w-full max-h-full rounded shadow-sm" />
-                      : mediaType === 'image' ? <img src={mediaUrl} alt="Support" className="w-full max-h-full object-contain rounded shadow-sm" />
-                      : mediaType === 'audio' ? (
-                          <div className="w-full max-w-md bg-white p-6 rounded-xl shadow-lg border border-slate-200 text-center">
-                              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"><Music className="w-10 h-10 text-green-600" /></div>
-                              <h3 className="text-lg font-bold text-slate-800 mb-2">{mediaFile?.name}</h3>
-                              <p className="text-xs text-slate-500 mb-6">Fichier Audio chargé</p>
-                              <audio src={mediaUrl} controls className="w-full" />
-                          </div>
-                      )
-                      : mediaType === 'pdf' ? <iframe src={mediaUrl} className="w-full h-full rounded border border-slate-200 bg-white" title="PDF Viewer" />
-                      : mediaType === 'csv' ? (
-                          <div className="w-full bg-white rounded border border-slate-200 overflow-hidden flex flex-col max-h-full">
-                              <div className="p-2 bg-slate-50 border-b border-slate-100 font-mono text-xs font-bold text-slate-500 flex gap-2 items-center"><FileSpreadsheet className="w-4 h-4 text-green-600"/> APERÇU CSV</div>
-                              <div className="overflow-auto p-0"><table className="w-full text-xs text-left"><tbody>{csvContent.map((row, i) => (<tr key={i} className={i===0 ? "bg-slate-100 font-bold" : "border-b border-slate-50 hover:bg-slate-50"}>{row.map((cell, j) => (<td key={j} className="p-2 border-r border-slate-100 truncate max-w-[150px]">{cell}</td>))}</tr>))}</tbody></table></div>
-                          </div>
-                      )
-                      : mediaType === 'excel' ? (
-                          <div className="text-center p-8 bg-white rounded-xl shadow-sm border border-slate-200 max-w-sm">
-                               <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4"><FileSpreadsheet className="w-10 h-10 text-green-600" /></div>
-                               <h3 className="text-lg font-bold text-slate-800 mb-2">Fichier Excel Chargé</h3>
-                               <p className="text-sm text-slate-500 bg-slate-50 p-2 rounded border border-slate-100 mb-4 break-all font-mono">{mediaFile?.name}</p>
-                          </div>
-                      )
-                      : (<div className="text-center p-8"><File className="w-12 h-12 text-slate-300 mx-auto mb-2"/><p className="text-slate-600 font-bold">{mediaFile?.name}</p></div>)
-                  ) : (
-                      <div className="text-center text-slate-400">
-                          <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3"><Upload className="w-8 h-8 text-slate-300" /></div>
-                          <p className="text-sm font-medium">Glissez un fichier ici</p>
-                          <p className="text-xs mt-1">Tous formats supportés</p>
-                      </div>
-                  )}
-              </CardContent>
-            </Card>
-        </div>
-
-        {/* LIGNE BASSE : INDICATEURS */}
-        <div className="w-full flex flex-col gap-4">
-            <MetricsPanel metrics={currentMetrics} />
-            <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm flex justify-between items-center text-xs font-mono text-slate-500">
-               <div className="flex items-center gap-2"><Zap className={`w-3 h-3 ${isConnected ? "text-green-500" : "text-red-500"}`} />SERVEUR STARTECH</div>
-               <span className={isConnected ? "text-green-600 font-bold bg-green-50 px-2 py-1 rounded" : "text-red-500 bg-red-50 px-2 py-1 rounded"}>{isConnected ? "ONLINE" : "OFFLINE"}</span>
+  // --- RENDU : ÉCRAN 2 (ENREGISTREMENT) ---
+  if (step === "recording") return (
+    <div className="fixed inset-0 bg-black flex flex-col">
+      {/* HEADER OVERLAY */}
+      <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-start bg-gradient-to-b from-black/60 to-transparent">
+         <div>
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-500/90 text-white animate-pulse">
+              🔴 REC
+            </span>
+         </div>
+         <div className="flex flex-col items-end">
+            <div className="text-4xl">{getEmoji(detectedEmotion)}</div>
+            <div className="text-white font-bold text-xs mt-1 bg-black/30 px-2 py-1 rounded backdrop-blur-md">
+                Satisfaction: {score}%
             </div>
-        </div>
+         </div>
+      </div>
 
-      </main>
-      <style jsx global>{` @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } } `}</style>
+      {/* VIDEO PLEIN ÉCRAN */}
+      <video 
+        ref={videoRef} 
+        autoPlay 
+        playsInline 
+        muted 
+        className="w-full h-full object-cover" // Important pour mobile : remplit tout l'écran
+      />
+      <canvas ref={canvasRef} className="hidden" />
+
+      {/* FOOTER BUTTON */}
+      <div className="absolute bottom-0 left-0 right-0 p-6 z-20 bg-gradient-to-t from-black/80 to-transparent flex justify-center pb-10">
+        <Button 
+          variant="destructive" 
+          size="lg" 
+          className="h-16 w-16 rounded-full border-4 border-white/20 shadow-2xl flex items-center justify-center bg-red-600 hover:bg-red-700"
+          onClick={handleStop}
+        >
+          <StopCircle className="w-8 h-8 fill-white" />
+        </Button>
+      </div>
+    </div>
+  )
+
+  // --- RENDU : ÉCRAN 3 (FIN) ---
+  return (
+    <div className="min-h-screen bg-green-50 flex flex-col items-center justify-center p-6 text-center animate-in slide-in-from-bottom-10 duration-500">
+      <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mb-6 shadow-sm">
+        <Smile className="w-12 h-12 text-green-600" />
+      </div>
+      <h2 className="text-3xl font-bold text-slate-900 mb-2">Merci {firstName} !</h2>
+      <p className="text-slate-600 mb-8 max-w-xs mx-auto">Ton analyse émotionnelle a bien été enregistrée.</p>
+      
+      <div className="space-y-3 w-full max-w-xs">
+        <Button 
+            className="w-full h-12 text-lg bg-slate-900 text-white shadow-xl"
+            onClick={() => setStep("form")}
+        >
+            🔄 Nouveau Test
+        </Button>
+        <Button 
+            variant="outline"
+            className="w-full h-12 text-slate-600 border-slate-300"
+            onClick={() => window.location.href = "/admin"} // Lien secret vers l'admin
+        >
+            📊 Voir les Résultats
+        </Button>
+      </div>
     </div>
   )
 }
