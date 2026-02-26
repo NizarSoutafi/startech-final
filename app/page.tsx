@@ -292,71 +292,86 @@ export default function Dashboard() {
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
 
-          {/* WEBCAM */}
-          <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none group h-[400px] lg:h-[500px]">
-            <div className="absolute top-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
-            <div className="absolute top-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
-            <div className="absolute bottom-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
-            <div className="absolute bottom-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
-            
-            <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-lg z-10 transition-opacity duration-300 ${isRecording ? 'opacity-100 animate-pulse' : 'opacity-0'}`} style={{ top: '50%' }} />
-            <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
+          {/* WEBCAM + BUTTONS BELOW */}
+          <div className="flex flex-col gap-3">
 
-            <CardContent className="p-0 h-full relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
-              <canvas ref={canvasRef} width="480" height="360" className="hidden" />
-              <div className="absolute inset-0 w-full h-full relative">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                <div
-                  className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear ${faceCoords ? 'opacity-100' : 'opacity-0'}`}
-                  style={{
-                    left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%',
-                    top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%',
-                    width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%',
-                    height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%',
-                    transform: 'scaleX(-1)'
-                  }}
-                >
-                  <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
+            {/* Camera card — no buttons inside anymore */}
+            <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none h-[340px] lg:h-[420px]">
+              <div className="absolute top-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
+              <div className="absolute top-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
+              <div className="absolute bottom-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
+              <div className="absolute bottom-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
+
+              <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-lg z-10 transition-opacity duration-300 ${isRecording ? 'opacity-100 animate-pulse' : 'opacity-0'}`} style={{ top: '50%' }} />
+              <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
+
+              <CardContent className="p-0 h-full relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
+                <canvas ref={canvasRef} width="480" height="360" className="hidden" />
+                <div className="absolute inset-0 w-full h-full relative">
+                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
+                  <div
+                    className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear ${faceCoords ? 'opacity-100' : 'opacity-0'}`}
+                    style={{
+                      left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%',
+                      top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%',
+                      width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%',
+                      height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%',
+                      transform: 'scaleX(-1)'
+                    }}
+                  >
+                    <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
+                  </div>
                 </div>
-              </div>
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30">
-                <Target className="w-64 h-64 text-white stroke-1" />
-              </div>
-              
-              <div className="z-20 w-full px-4 md:px-8 pb-4 md:pb-8 mt-auto absolute bottom-0">
-                <div className="flex justify-between items-end mb-4 md:mb-8">
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="outline" className={`px-2 py-1 md:px-3 border-none backdrop-blur-md ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30">
+                  <Target className="w-64 h-64 text-white stroke-1" />
+                </div>
+
+                {/* Timer + REC + Emotion — still inside camera as overlay */}
+                <div className="z-20 w-full px-4 pb-4 absolute bottom-0">
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <Badge variant="outline" className={`px-2 py-1 border-none backdrop-blur-md mb-1 ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}>
                         <div className={`w-2 h-2 rounded-full mr-2 ${isRecording ? "bg-white" : "bg-slate-300"}`} />
                         <span suppressHydrationWarning>{isRecording ? "REC" : "PRÊT"}</span>
                       </Badge>
+                      <div className="text-5xl font-mono font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">{formatTime(sessionTime)}</div>
                     </div>
-                    <div className="text-5xl md:text-7xl font-mono font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">{formatTime(sessionTime)}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="bg-white/90 backdrop-blur-xl px-3 py-2 md:px-6 md:py-4 rounded-xl border border-white shadow-2xl">
-                      <span className="block text-[8px] md:text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Emotion</span>
-                      <span className="text-xl md:text-3xl font-bold text-slate-900 flex items-center justify-end gap-3" suppressHydrationWarning>{getEmotionDisplay(currentMetrics.emotion)}</span>
+                    <div className="bg-white/90 backdrop-blur-xl px-3 py-2 rounded-xl border border-white shadow-2xl">
+                      <span className="block text-[9px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Emotion</span>
+                      <span className="text-lg font-bold text-slate-900 flex items-center gap-2" suppressHydrationWarning>{getEmotionDisplay(currentMetrics.emotion)}</span>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center justify-center gap-4 md:gap-8 pt-4 md:pt-6 border-t border-white/20">
-                  <Button size="icon" variant="outline" onClick={handleReset} className="h-12 w-12 md:h-14 md:w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all">
-                    <RotateCcw className="h-5 w-5" />
-                  </Button>
-                  <Button
-                    onClick={handleStartStop}
-                    variant={isRecording ? "destructive" : "default"}
-                    className={`px-8 md:px-10 h-12 md:h-14 text-lg font-bold rounded-full transition-all hover:scale-105 ${!isRecording ? "bg-green-600 hover:bg-green-500 text-white" : "shadow-lg"}`}
-                  >
-                    {isRecording ? <Square className="mr-2 h-5 w-5 fill-current" /> : <Play className="mr-2 h-5 w-5 fill-current" />}
-                    <span suppressHydrationWarning>{isRecording ? "STOP" : "GO"}</span>
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+
+            {/* ✅ GO/STOP + RESET — OUTSIDE the camera */}
+            <div className="flex items-center justify-center gap-4 py-4 px-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={handleReset}
+                className="h-12 w-12 rounded-full border-2 border-slate-200 text-slate-500 hover:bg-red-50 hover:border-red-300 hover:text-red-500 transition-all"
+                title="Reset"
+              >
+                <RotateCcw className="h-5 w-5" />
+              </Button>
+
+              <Button
+                onClick={handleStartStop}
+                variant={isRecording ? "destructive" : "default"}
+                className={`h-14 px-12 text-lg font-bold rounded-full flex-1 max-w-[240px] transition-all hover:scale-105 ${
+                  !isRecording ? "bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-200" : "shadow-lg"
+                }`}
+              >
+                {isRecording
+                  ? <><Square className="mr-2 h-5 w-5 fill-current" /><span suppressHydrationWarning>STOP</span></>
+                  : <><Play className="mr-2 h-5 w-5 fill-current" /><span suppressHydrationWarning>GO</span></>
+                }
+              </Button>
+            </div>
+
+          </div>
 
           {/* MEDIA */}
           <Card className="border-slate-200 bg-white shadow-md flex flex-col h-[300px] lg:h-[500px]">
