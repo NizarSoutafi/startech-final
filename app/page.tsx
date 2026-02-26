@@ -1,377 +1,306 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { io } from "socket.io-client"
+import MetricsPanel from "@/components/neurolink/metrics-panel"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Video, Mic, StopCircle, Play, Loader2, Camera, User, Smile, Upload, Menu, X, Globe, ShieldCheck, Zap, Heart, Eye } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon, FileText, Music, FileSpreadsheet, File, Menu, X } from "lucide-react"
+import { io, Socket } from "socket.io-client"
+import Link from "next/link"
 
-// URL du Backend (Hugging Face)
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+// --- ADRESSE CORRIGÉE POUR L'ÉVÉNEMENT ---
+const API_URL = "https://persee-tech-startech-event-backend.hf.space"
 
-export default function DesktopMobileHybrid() {
-  const [firstName, setFirstName] = useState("Invité")
-  const [lastName, setLastName] = useState("")
-  const [clientId, setClientId] = useState("AZ-130") // Code style "Mission"
-  
-  const [socket, setSocket] = useState<any>(null)
+interface UserInfo { firstName: string; lastName: string; clientId: string }
+
+export default function Dashboard() {
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
+  const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [detectedEmotion, setDetectedEmotion] = useState<string>("NEUTRE")
-  const [metrics, setMetrics] = useState({ engagement: 50, satisfaction: 50, loyalty: 50, conviction: 50 })
-  const [sessionTime, setSessionTime] = useState("00:00")
+  const [sessionTime, setSessionTime] = useState(0)
+  const [formData, setFormData] = useState({ firstName: "", lastName: "", clientId: "" })
   
-  // Interface Logic
-  const [showMobileMenu, setShowMobileMenu] = useState(false)
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
-
+  const [currentMetrics, setCurrentMetrics] = useState({ 
+    engagement: 0, 
+    satisfaction: 50, 
+    trust: 50, 
+    loyalty: 50, 
+    opinion: 50, 
+    conversion: 0,
+    lbl_conv: "En attente",
+    emotion: "neutral" 
+  })
+  
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const startTimeRef = useRef<number>(0)
+  const [faceCoords, setFaceCoords] = useState<any>(null)
+  const [cameraActive, setCameraActive] = useState(false)
 
-  // --- 1. SOCKET & INITIALIZATION ---
+  // --- ETATS MEDIA ---
+  const [mediaFile, setMediaFile] = useState<File | null>(null)
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
+  const [mediaType, setMediaType] = useState<'video' | 'image' | 'pdf' | 'audio' | 'csv' | 'excel' | 'other' | null>(null)
+  const [csvContent, setCsvContent] = useState<string[][]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
-    const newSocket = io(API_URL, { transports: ["websocket"] })
-    
-    newSocket.on("connect", () => {
-      console.log("🟢 SYSTEM ONLINE")
-      setIsConnected(true)
-    })
-
-    newSocket.on("metrics_update", (data: any) => {
-      setDetectedEmotion(data.emotion.toUpperCase())
-      setMetrics({
-        engagement: Math.round(data.metrics.engagement),
-        satisfaction: Math.round(data.metrics.satisfaction),
-        loyalty: Math.round(data.metrics.loyalty),
-        conviction: Math.round((data.metrics.engagement * 0.4) + (data.metrics.satisfaction * 0.6))
+    if (userInfo && !cameraActive) {
+      // FORCE LA CAMÉRA SELFIE SUR MOBILE
+      navigator.mediaDevices.getUserMedia({ 
+        video: { 
+            facingMode: "user", 
+            width: { ideal: 480 }, 
+            height: { ideal: 360 } 
+        } 
       })
+        .then(stream => { if (videoRef.current) { videoRef.current.srcObject = stream; setCameraActive(true) } })
+        .catch(err => console.error("Erreur Webcam:", err))
+    }
+  }, [userInfo, cameraActive])
+
+  useEffect(() => {
+    if (!userInfo) return;
+    
+    const newSocket = io(API_URL, {
+        transports: ["websocket", "polling"],
+        path: "/socket.io/",
+        secure: true,
+    })
+    
+    newSocket.on("connect", () => setIsConnected(true))
+    newSocket.on("disconnect", () => setIsConnected(false))
+    
+    newSocket.on("metrics_update", (data: any) => {
+      setSessionTime(data.session_time); 
+      setIsRecording(data.is_recording)
+      setFaceCoords(data.face_coords)
+      
+      const newMetrics = { 
+        emotion: data.emotion,
+        engagement: data.metrics.engagement, 
+        satisfaction: data.metrics.satisfaction,
+        trust: data.metrics.trust, 
+        loyalty: data.metrics.loyalty, 
+        opinion: data.metrics.opinion,
+        conversion: data.metrics.conversion || 0,
+        lbl_conv: data.metrics.lbl_conv || "Analysing..."
+      }
+      setCurrentMetrics(newMetrics)
     })
 
     setSocket(newSocket)
-    return () => { newSocket.close() }
-  }, [])
 
-  // --- 2. CAMERA HANDLING (Avec support Mobile Frontal) ---
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, 
-        audio: false 
-      })
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
+    const interval = setInterval(() => {
+        if (videoRef.current && canvasRef.current && newSocket.connected) {
+            const ctx = canvasRef.current.getContext('2d')
+            if (ctx) {
+                ctx.drawImage(videoRef.current, 0, 0, 480, 360)
+                const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.5)
+                newSocket.emit('process_frame', dataUrl)
+            }
+        }
+    }, 200)
+
+    return () => { clearInterval(interval); newSocket.close() }
+  }, [userInfo])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setMediaFile(file)
+      const url = URL.createObjectURL(file)
+      setMediaUrl(url)
+      setCsvContent([])
+      const type = file.type; const name = file.name.toLowerCase()
+      if (type.startsWith('video/')) setMediaType('video')
+      else if (type.startsWith('image/')) setMediaType('image')
+      else if (type.startsWith('audio/')) setMediaType('audio')
+      else if (type === 'application/pdf') setMediaType('pdf')
+      else if (name.endsWith('.csv')) {
+          setMediaType('csv')
+          const reader = new FileReader()
+          reader.onload = (event) => {
+              const text = event.target?.result as string
+              const rows = text.split('\n').slice(0, 10).map(row => row.split(/[;,]/))
+              setCsvContent(rows)
+          }
+          reader.readAsText(file)
       }
-    } catch (err) {
-      alert("Erreur Caméra : Activez les permissions.")
+      else if (name.endsWith('.xlsx') || name.endsWith('.xls')) setMediaType('excel')
+      else setMediaType('other')
     }
   }
 
-  // --- 3. SESSION LOGIC ---
-  const handleStart = () => {
-    setIsRecording(true)
-    startCamera()
-    
-    // Timer
-    startTimeRef.current = Date.now()
-    timerRef.current = setInterval(() => {
-        const diff = Math.floor((Date.now() - startTimeRef.current) / 1000)
-        const mins = Math.floor(diff / 60).toString().padStart(2, '0')
-        const secs = (diff % 60).toString().padStart(2, '0')
-        setSessionTime(`${mins}:${secs}`)
-    }, 1000)
-
-    if (socket) {
-      socket.emit("start_session", { firstName, lastName, clientId })
-      intervalRef.current = setInterval(() => sendFrame(), 200)
-    }
+  const handleLogin = (e: React.FormEvent) => { e.preventDefault(); if (formData.firstName && formData.lastName) setUserInfo(formData) }
+  
+  const handleStartStop = () => { 
+      if (socket && userInfo) { 
+          if (isRecording) {
+              socket.emit("stop_session")
+              setIsRecording(false) 
+          } else {
+              setSessionTime(0)
+              socket.emit("start_session", userInfo)
+              setIsRecording(true) 
+          }
+      } 
   }
 
-  const handleStop = () => {
-    setIsRecording(false)
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    if (timerRef.current) clearInterval(timerRef.current)
-    if (socket) socket.emit("stop_session")
-    
-    if (videoRef.current && videoRef.current.srcObject) {
-      const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
-      tracks.forEach(track => track.stop())
-    }
-  }
+  const handleReset = () => { if (socket) socket.emit("stop_session"); setSessionTime(0); setCurrentMetrics(prev => ({ ...prev, engagement: 0, emotion: "neutral", conversion: 0 })) }
+  const handleLogout = () => { setUserInfo(null); setSessionTime(0); setCameraActive(false); if(socket) socket.disconnect() }
+  const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`
+  const getEmotionDisplay = (e: string) => { const map: any = { happy: "😄 JOIE", sad: "😢 TRISTESSE", angry: "😠 COLÈRE", surprise: "😲 SURPRISE", fear: "😨 PEUR", neutral: "😐 NEUTRE" }; return map[e] || e.toUpperCase() }
 
-  const sendFrame = () => {
-    if (!videoRef.current || !canvasRef.current || !socket) return
-    const ctx = canvasRef.current.getContext("2d")
-    if (!ctx) return
-
-    canvasRef.current.width = videoRef.current.videoWidth
-    canvasRef.current.height = videoRef.current.videoHeight
-    // Dessin Miroir
-    ctx.translate(canvasRef.current.width, 0)
-    ctx.scale(-1, 1)
-    ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height)
-
-    const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.6)
-    socket.emit("process_frame", dataUrl)
-  }
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if(e.target.files && e.target.files[0]) setUploadedFile(e.target.files[0])
-  }
-
-  // --- RENDER HELPERS ---
-  const getEmotionColor = (emo: string) => {
-      const map: any = { "JOIE": "text-green-500", "SURPRISE": "text-yellow-500", "NEUTRE": "text-slate-400", "TRISTESSE": "text-blue-500", "COLÈRE": "text-red-500" }
-      return map[emo] || "text-slate-400"
+  if (!userInfo) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden text-slate-900">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 via-slate-50 to-white opacity-80"></div>
+        <Card className="w-full max-w-md border-slate-200 bg-white shadow-2xl relative z-10">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-full bg-green-50 flex items-center justify-center border border-green-100 shadow-sm"><Fingerprint className="w-10 h-10 text-green-600" /></div>
+            <div><CardTitle className="text-3xl font-bold tracking-tight text-slate-900">STARTECH <span className="text-green-600">ID</span></CardTitle><CardDescription className="text-slate-500">Identification biométrique du sujet</CardDescription></div>
+          </CardHeader>
+          <form onSubmit={handleLogin}>
+            <CardContent className="space-y-4">
+              <div className="space-y-2"><Label htmlFor="firstName" className="text-xs uppercase tracking-widest text-slate-500">Prénom</Label><Input id="firstName" placeholder="Ex: Jean" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} required /></div>
+              <div className="space-y-2"><Label htmlFor="lastName" className="text-xs uppercase tracking-widest text-slate-500">Nom</Label><Input id="lastName" placeholder="Ex: Dupont" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} required /></div>
+              <div className="space-y-2"><Label htmlFor="clientId" className="text-xs uppercase tracking-widest text-slate-500">Code Projet</Label><Input id="clientId" placeholder="Ex: PROJET-A12" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.clientId} onChange={e => setFormData({...formData, clientId: e.target.value})} /></div>
+            </CardContent>
+            <CardFooter><Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white h-12 text-lg font-bold shadow-lg shadow-green-200">INITIALISER SESSION</Button></CardFooter>
+          </form>
+        </Card>
+        <div className="absolute bottom-6 right-6 z-20"><Link href="/admin"><Button variant="ghost" className="text-slate-500 hover:text-slate-900 hover:bg-slate-200 text-xs gap-2"><Shield className="w-3 h-3" /> Accès Admin</Button></Link></div>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-green-900 overflow-x-hidden flex flex-col lg:flex-row">
-      
-      {/* --- 1. SIDEBAR (ADMIN STYLE) --- */}
-      {/* Mobile: Header Bar */}
-      <div className="lg:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 z-50">
-          <div className="flex items-center gap-2">
-              <div className="h-8 w-8 bg-green-600 rounded flex items-center justify-center font-bold text-black">ST</div>
-              <span className="font-bold tracking-wider">STARTECH</span>
-          </div>
-          <Button variant="ghost" size="icon" onClick={() => setShowMobileMenu(!showMobileMenu)}>
-              {showMobileMenu ? <X/> : <Menu/>}
-          </Button>
-      </div>
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
+        <div className="flex h-16 items-center px-4 md:px-6 justify-between">
+           <div className="flex items-center gap-3 font-bold text-xl tracking-tight text-slate-900"><div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_15px_#22c55e] animate-pulse" />STARTECH <span className="text-slate-400 font-normal hidden md:inline">VISION</span></div>
+           <div className="flex items-center gap-2 md:gap-4">
+              <div className="flex items-center gap-2 md:gap-3 px-3 py-1.5 bg-slate-100 rounded-full border border-slate-200">
+                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-700 flex items-center justify-center text-xs font-bold text-white">{userInfo.firstName.charAt(0)}{userInfo.lastName.charAt(0)}</div>
+                 <div className="flex flex-col"><span className="text-sm font-bold text-slate-900 leading-none">{userInfo.firstName}</span><span className="text-[10px] text-slate-500 leading-none mt-1 max-w-[80px] truncate">{userInfo.clientId || "GUEST"}</span></div>
+              </div>
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="text-slate-500 hover:text-red-600 hover:bg-red-50"><X className="w-5 h-5"/></Button>
+           </div>
+        </div>
+      </header>
 
-      {/* Sidebar Content (Desktop: Fixed Left / Mobile: Toggle) */}
-      <aside className={`
-          fixed inset-0 z-40 bg-slate-900/95 backdrop-blur-md transition-transform duration-300 border-r border-slate-800
-          lg:static lg:translate-x-0 lg:w-64 lg:block
-          ${showMobileMenu ? 'translate-x-0 pt-20' : '-translate-x-full lg:pt-0'}
-      `}>
-          <div className="p-6 h-full flex flex-col">
-            <div className="hidden lg:flex items-center gap-3 mb-10">
-                <div className="h-10 w-10 bg-green-600 rounded flex items-center justify-center font-bold text-black shadow-[0_0_15px_rgba(22,163,74,0.6)]">ST</div>
-                <div>
-                    <h1 className="font-bold text-lg tracking-wider text-white">STARTECH</h1>
-                    <div className="text-[10px] text-green-500 tracking-[0.2em]">VISION</div>
-                </div>
-            </div>
-
-            {/* User Info Block */}
-            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-6">
-                <div className="flex items-center gap-3 mb-2">
-                    <div className="h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center"><User className="w-4 h-4"/></div>
-                    <div>
-                        <div className="font-bold text-sm text-white">NSNizar STF</div>
-                        <div className="text-xs text-slate-500">Admin</div>
-                    </div>
-                </div>
-                <div className="flex justify-between items-center text-xs mt-3 pt-3 border-t border-slate-700">
-                    <span className="text-slate-400">ID: {clientId}</span>
-                    <Badge variant="outline" className="text-[10px] border-green-900 text-green-500 bg-green-900/10">ONLINE</Badge>
-                </div>
-            </div>
-
-            {/* Menu Links */}
-            <nav className="space-y-2 flex-1">
-                <Button variant="ghost" className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800"><Zap className="w-4 h-4 mr-3"/> Live Analyse</Button>
-                <Button variant="ghost" className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800" onClick={() => window.location.href = "/admin"}><ShieldCheck className="w-4 h-4 mr-3"/> Dashboard</Button>
-                <Button variant="ghost" className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-800"><Globe className="w-4 h-4 mr-3"/> Historique</Button>
-            </nav>
-
-            <Button variant="destructive" className="w-full mt-auto bg-red-900/20 hover:bg-red-900/40 text-red-500 border border-red-900/50">
-                SORTIR
-            </Button>
-          </div>
-      </aside>
-
-      {/* --- 2. MAIN CONTENT (THE HUD) --- */}
-      <main className="flex-1 flex flex-col p-2 lg:p-6 gap-6 overflow-y-auto">
+      <main className="flex-1 p-3 md:p-6 lg:p-8 overflow-y-auto flex flex-col gap-4 md:gap-6">
         
-        {/* Top Bar (Status) */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-            <div>
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    TARGET LOCKED
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">Serveur d'analyse émotionnelle v2.4 (Hugging Face)</p>
-            </div>
-            <div className="flex items-center gap-4 w-full lg:w-auto">
-                <div className="text-right">
-                    <div className="text-xs text-slate-500 uppercase">Temps Session</div>
-                    <div className="font-mono text-xl text-green-400">{sessionTime}</div>
-                </div>
-                <div className="h-10 w-[1px] bg-slate-700 mx-2"></div>
-                <div className="text-right">
-                    <div className="text-xs text-slate-500 uppercase">Emotion Dominante</div>
-                    <div className={`font-bold text-lg ${getEmotionColor(detectedEmotion)}`}>{detectedEmotion}</div>
-                </div>
-            </div>
-        </div>
-
-        {/* --- VIDEO ZONE (THE GREEN FRAME) --- */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* LIGNE HAUTE : CAMÉRA + MÉDIA (Responsive Grid) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
             
-            {/* Left Column: VIDEO + UPLOAD */}
-            <div className="lg:col-span-2 space-y-6">
-                
-                {/* VIDEO CONTAINER */}
-                <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border-2 border-slate-800 shadow-2xl group">
-                    {/* Le flux vidéo */}
+            {/* 1. WEBCAM (Hauteur ajustée pour mobile) */}
+            <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none group h-[400px] lg:h-[500px]">
+              {/* Cadre Vert (Overlay) */}
+              <div className="absolute top-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
+              <div className="absolute top-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
+              <div className="absolute bottom-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
+              <div className="absolute bottom-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
+              
+              <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-[0_0_20px_#22c55e] z-10 animate-[scan_3s_ease-in-out_infinite] transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} style={{ top: '0%' }} />
+              <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
+
+              <CardContent className="p-0 h-full relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
+                <canvas ref={canvasRef} width="480" height="360" className="hidden" />
+                <div className="absolute inset-0 w-full h-full relative">
+                    {/* Vidéo avec playsInline pour iPhone */}
                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                    <canvas ref={canvasRef} className="hidden" />
-
-                    {/* OVERLAY "HUD" (Le Cadre Vert + Visage) */}
-                    {isRecording && (
-                        <div className="absolute inset-0 pointer-events-none">
-                            {/* Coins du cadre vert */}
-                            <div className="absolute top-4 left-4 w-16 h-16 border-t-4 border-l-4 border-green-500/80 rounded-tl-lg"></div>
-                            <div className="absolute top-4 right-4 w-16 h-16 border-t-4 border-r-4 border-green-500/80 rounded-tr-lg"></div>
-                            <div className="absolute bottom-4 left-4 w-16 h-16 border-b-4 border-l-4 border-green-500/80 rounded-bl-lg"></div>
-                            <div className="absolute bottom-4 right-4 w-16 h-16 border-b-4 border-r-4 border-green-500/80 rounded-br-lg"></div>
-                            
-                            {/* Cible centrale */}
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-green-500/30 rounded-full flex items-center justify-center">
-                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                <div className="absolute w-full h-[1px] bg-green-500/30"></div>
-                                <div className="absolute h-full w-[1px] bg-green-500/30"></div>
-                            </div>
-
-                            {/* Scan line effect */}
-                            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-green-500/5 to-transparent animate-scan"></div>
-                        </div>
-                    )}
-
-                    {/* Bouton Play/Stop Central si non démarré */}
-                    {!isRecording && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                            <Button onClick={handleStart} className="h-20 w-20 rounded-full bg-green-600 hover:bg-green-500 text-black shadow-[0_0_30px_rgba(22,163,74,0.6)] transition-all transform hover:scale-110">
-                                {isConnected ? <Play className="w-8 h-8 fill-black" /> : <Loader2 className="w-8 h-8 animate-spin"/>}
-                            </Button>
-                        </div>
-                    )}
-                </div>
-
-                {/* UPLOAD ZONE (Style Desktop conservé) */}
-                <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-xl p-6 text-center transition-colors hover:bg-slate-800/50">
-                    <div className="flex flex-col items-center gap-3">
-                        <div className="h-12 w-12 bg-slate-800 rounded-full flex items-center justify-center text-slate-400">
-                            <Upload className="w-6 h-6"/>
-                        </div>
-                        <div>
-                            <h3 className="text-white font-medium">Charger Média</h3>
-                            <p className="text-sm text-slate-500">Glissez un fichier ici ou cliquez pour analyser une vidéo pré-enregistrée</p>
-                        </div>
-                        <Input type="file" onChange={handleFileUpload} className="hidden" id="file-upload"/>
-                        <Button variant="outline" className="mt-2 border-slate-700 text-slate-300 hover:text-white" onClick={() => document.getElementById('file-upload')?.click()}>
-                            Parcourir les fichiers
-                        </Button>
-                        {uploadedFile && <div className="text-xs text-green-500 mt-2">Fichier prêt : {uploadedFile.name}</div>}
+                    
+                    {/* Target Locked Box */}
+                    <div className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear shadow-[0_0_15px_#22c55e] ${faceCoords ? 'opacity-100' : 'opacity-0'}`} style={{ left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%', top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%', width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%', height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%', transform: 'scaleX(-1)' }}>
+                          <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
                     </div>
                 </div>
-
-            </div>
-
-            {/* Right Column: METRICS PANEL */}
-            <div className="space-y-4">
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30"><Target className="w-64 h-64 text-white stroke-1" /></div>
                 
-                {/* Control Panel */}
-                <Card className="bg-slate-900 border-slate-800 text-white">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm uppercase text-slate-500">Contrôle Session</CardTitle></CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="grid grid-cols-2 gap-2">
-                            <Input placeholder="Prénom" className="bg-slate-950 border-slate-800" value={firstName} onChange={e => setFirstName(e.target.value)}/>
-                            <Input placeholder="Nom" className="bg-slate-950 border-slate-800" value={lastName} onChange={e => setLastName(e.target.value)}/>
+                {/* HUD Infos */}
+                <div className="z-20 w-full px-4 md:px-8 pb-4 md:pb-8 mt-auto absolute bottom-0">
+                  <div className="flex justify-between items-end mb-4 md:mb-8">
+                    <div>
+                        <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="outline" className={`px-2 py-1 md:px-3 border-none backdrop-blur-md ${isRecording ? "bg-red-600 text-white animate-pulse" : "bg-white/20 text-white"}`}>
+                                <div className={`w-2 h-2 rounded-full mr-2 ${isRecording ? "bg-white" : "bg-slate-300"}`} />
+                                <span suppressHydrationWarning>{isRecording ? "REC" : "PRÊT"}</span>
+                            </Badge>
                         </div>
-                        {isRecording ? (
-                            <Button onClick={handleStop} variant="destructive" className="w-full h-12 font-bold shadow-lg shadow-red-900/20">
-                                <StopCircle className="mr-2 w-5 h-5"/> ARRÊTER L'ANALYSE
-                            </Button>
-                        ) : (
-                            <Button onClick={handleStart} className="w-full h-12 bg-green-600 hover:bg-green-500 text-black font-bold shadow-lg shadow-green-900/20">
-                                <Camera className="mr-2 w-5 h-5"/> DÉMARRER CAMÉRA
-                            </Button>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Metrics Details */}
-                <Card className="bg-slate-900 border-slate-800 text-white flex-1">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm uppercase text-slate-500 flex items-center gap-2"><Zap className="w-4 h-4"/> Métriques IA</CardTitle></CardHeader>
-                    <CardContent className="space-y-6">
-                        
-                        {/* Engagement */}
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-300">Compréhension</span>
-                                <span className="font-bold text-green-400">{metrics.engagement}%</span>
-                            </div>
-                            <Progress value={metrics.engagement} className="h-2 bg-slate-950" indicatorColor="bg-green-500" />
-                            <p className="text-[10px] text-slate-500">Niveau d'attention cognitive</p>
+                        <div className="text-5xl md:text-7xl font-mono font-bold text-white tabular-nums tracking-tighter drop-shadow-lg">{formatTime(sessionTime)}</div>
+                    </div>
+                    <div className="text-right">
+                        <div className="bg-white/90 backdrop-blur-xl px-3 py-2 md:px-6 md:py-4 rounded-xl border border-white shadow-2xl">
+                            <span className="block text-[8px] md:text-[10px] text-slate-500 uppercase tracking-widest mb-1 font-bold">Emotion</span>
+                            <span className="text-xl md:text-3xl font-bold text-slate-900 flex items-center justify-end gap-3" suppressHydrationWarning>{getEmotionDisplay(currentMetrics.emotion)}</span>
                         </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center gap-4 md:gap-8 pt-4 md:pt-6 border-t border-white/20">
+                    <Button size="icon" variant="outline" onClick={handleReset} className="h-12 w-12 md:h-14 md:w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all"><RotateCcw className="h-5 w-5" /></Button>
+                    <Button onClick={handleStartStop} variant={isRecording ? "destructive" : "default"} className={`px-8 md:px-10 h-12 md:h-14 text-lg font-bold rounded-full transition-all hover:scale-105 ${!isRecording ? "bg-green-600 hover:bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)]" : "shadow-[0_0_20px_rgba(239,68,68,0.4)]"}`}>
+                        {isRecording ? <Square className="mr-2 h-5 w-5 fill-current" /> : <Play className="mr-2 h-5 w-5 fill-current" />}
+                        <span suppressHydrationWarning>{isRecording ? "STOP" : "GO"}</span>
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-                        {/* Satisfaction */}
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-300">Satisfaction</span>
-                                <span className="font-bold text-blue-400">{metrics.satisfaction}%</span>
-                            </div>
-                            <Progress value={metrics.satisfaction} className="h-2 bg-slate-950" indicatorColor="bg-blue-500" />
-                            <p className="text-[10px] text-slate-500">Valence émotionnelle positive</p>
-                        </div>
-
-                        {/* Crédibilité */}
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-300">Crédibilité</span>
-                                <span className="font-bold text-purple-400">{metrics.loyalty}%</span>
-                            </div>
-                            <Progress value={metrics.loyalty} className="h-2 bg-slate-950" indicatorColor="bg-purple-500" />
-                            <p className="text-[10px] text-slate-500">Confiance envers le message</p>
-                        </div>
-
-                        {/* Conviction (GROS) */}
-                        <div className="bg-slate-950/50 p-4 rounded-lg border border-slate-800 text-center">
-                            <div className="text-xs text-slate-500 uppercase mb-1">Score de Conviction</div>
-                            <div className="text-4xl font-black text-white">{metrics.conviction}%</div>
-                            <div className="text-xs text-green-500 mt-1 flex items-center justify-center gap-1">
-                                {metrics.conviction > 50 ? "Intéressé 👍" : "Sceptique 👎"}
-                            </div>
-                        </div>
-
-                    </CardContent>
-                </Card>
-
-            </div>
+            {/* 2. MEDIA (Hauteur ajustée) */}
+            <Card className="border-slate-200 bg-white shadow-md flex flex-col h-[300px] lg:h-[500px]">
+              <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
+                <div><CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2"><FileText className="w-4 h-4 text-green-600" /> Support</CardTitle></div>
+                <div>
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*,audio/*,application/pdf,.csv,.xlsx,.xls" className="hidden" />
+                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="text-xs h-8 gap-2"><Upload className="w-3 h-3" /> Charger</Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 flex items-center justify-center bg-slate-100 flex-1 relative overflow-auto">
+                  {mediaUrl ? (
+                      mediaType === 'video' ? <video src={mediaUrl} controls className="w-full max-h-full rounded shadow-sm" />
+                      : mediaType === 'image' ? <img src={mediaUrl} alt="Support" className="w-full max-h-full object-contain rounded shadow-sm" />
+                      : mediaType === 'audio' ? (
+                          <div className="w-full max-w-md bg-white p-6 rounded-xl shadow-lg border border-slate-200 text-center">
+                              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"><Music className="w-8 h-8 text-green-600" /></div>
+                              <h3 className="text-sm font-bold text-slate-800 mb-2 truncate">{mediaFile?.name}</h3>
+                              <audio src={mediaUrl} controls className="w-full" />
+                          </div>
+                      )
+                      : mediaType === 'pdf' ? <iframe src={mediaUrl} className="w-full h-full rounded border border-slate-200 bg-white" title="PDF Viewer" />
+                      : mediaType === 'csv' ? (
+                          <div className="w-full bg-white rounded border border-slate-200 overflow-hidden flex flex-col max-h-full">
+                              <div className="p-2 bg-slate-50 border-b border-slate-100 font-mono text-xs font-bold text-slate-500 flex gap-2 items-center"><FileSpreadsheet className="w-4 h-4 text-green-600"/> CSV</div>
+                              <div className="overflow-auto p-0"><table className="w-full text-xs text-left"><tbody>{csvContent.map((row, i) => (<tr key={i} className={i===0 ? "bg-slate-100 font-bold" : "border-b border-slate-50 hover:bg-slate-50"}>{row.map((cell, j) => (<td key={j} className="p-2 border-r border-slate-100 truncate max-w-[150px]">{cell}</td>))}</tr>))}</tbody></table></div>
+                          )
+                      )
+                      : (<div className="text-center p-8"><File className="w-12 h-12 text-slate-300 mx-auto mb-2"/><p className="text-slate-600 font-bold">{mediaFile?.name}</p></div>)
+                  ) : (
+                      <div className="text-center text-slate-400">
+                          <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3"><Upload className="w-6 h-6 text-slate-300" /></div>
+                          <p className="text-sm font-medium">Glissez un fichier</p>
+                      </div>
+                  )}
+              </CardContent>
+            </Card>
         </div>
 
-        {/* Footer */}
-        <div className="mt-auto pt-6 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-600 uppercase tracking-widest">
-            <div>System Ready</div>
-            <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}></div>
-                SERVEUR STARTECH {isConnected ? "ONLINE" : "OFFLINE"}
+        {/* LIGNE BASSE : INDICATEURS */}
+        <div className="w-full flex flex-col gap-4">
+            <MetricsPanel metrics={currentMetrics} />
+            <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm flex justify-between items-center text-xs font-mono text-slate-500">
+               <div className="flex items-center gap-2"><Zap className={`w-3 h-3 ${isConnected ? "text-green-500" : "text-red-500"}`} />SERVEUR STARTECH</div>
+               <span className={isConnected ? "text-green-600 font-bold bg-green-50 px-2 py-1 rounded" : "text-red-500 bg-red-50 px-2 py-1 rounded"}>{isConnected ? "ONLINE" : "OFFLINE"}</span>
             </div>
         </div>
 
       </main>
-
-      {/* CSS POUR L'ANIMATION DE SCAN (TARGET LOCKED) */}
-      <style jsx global>{`
-        @keyframes scan {
-            0% { transform: translateY(-100%); opacity: 0; }
-            50% { opacity: 1; }
-            100% { transform: translateY(100%); opacity: 0; }
-        }
-        .animate-scan {
-            animation: scan 3s linear infinite;
-        }
-      `}</style>
+      <style jsx global>{` @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } } `}</style>
     </div>
   )
 }
