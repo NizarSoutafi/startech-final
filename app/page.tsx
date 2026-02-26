@@ -11,10 +11,12 @@ import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, File
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
-// ADRESSE DU BACKEND
 const API_URL = "https://persee-tech-startech-event-backend.hf.space"
 
 interface UserInfo { firstName: string; lastName: string; clientId: string }
+
+// Lerp helper — smoothly interpolates between two values
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
 export default function Dashboard() {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
@@ -23,22 +25,29 @@ export default function Dashboard() {
   const [isRecording, setIsRecording] = useState(false)
   const [sessionTime, setSessionTime] = useState(0)
   const [formData, setFormData] = useState({ firstName: "", lastName: "", clientId: "" })
-  
-  const [currentMetrics, setCurrentMetrics] = useState({ 
-    engagement: 0, 
-    satisfaction: 50, 
-    trust: 50, 
-    loyalty: 50, 
-    opinion: 50, 
+
+  const [currentMetrics, setCurrentMetrics] = useState({
+    engagement: 0,
+    satisfaction: 50,
+    trust: 50,
+    loyalty: 50,
+    opinion: 50,
     conversion: 0,
     lbl_conv: "En attente",
-    emotion: "neutral" 
+    emotion: "neutral"
   })
-  
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [faceCoords, setFaceCoords] = useState<any>(null)
+  const faceBoxRef = useRef<HTMLDivElement>(null)
   const [cameraActive, setCameraActive] = useState(false)
+
+  // Raw target coords from socket (updated every 200ms)
+  const targetCoordsRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  // Smoothed coords animated by rAF
+  const smoothCoordsRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const [faceVisible, setFaceVisible] = useState(false)
 
   // ETATS MEDIA
   const [mediaFile, setMediaFile] = useState<File | null>(null)
@@ -47,14 +56,50 @@ export default function Dashboard() {
   const [csvContent, setCsvContent] = useState<string[][]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // rAF loop — lerps smoothed coords toward target and applies them directly to DOM (no React re-render)
+  useEffect(() => {
+    const LERP_FACTOR = 0.18 // lower = smoother but slower, higher = snappier
+
+    const animate = () => {
+      const target = targetCoordsRef.current
+      const box = faceBoxRef.current
+
+      if (target && box) {
+        if (!smoothCoordsRef.current) {
+          smoothCoordsRef.current = { ...target }
+        }
+
+        const s = smoothCoordsRef.current
+        s.x = lerp(s.x, target.x, LERP_FACTOR)
+        s.y = lerp(s.y, target.y, LERP_FACTOR)
+        s.w = lerp(s.w, target.w, LERP_FACTOR)
+        s.h = lerp(s.h, target.h, LERP_FACTOR)
+
+        // Use transform + width/height for GPU-accelerated rendering
+        box.style.width  = `${(s.w / 480) * 100}%`
+        box.style.height = `${(s.h / 360) * 100}%`
+        box.style.transform = `translate(${(s.x / 480) * 100 * (480 / s.w)}%, 0) scaleX(-1)`
+        // Use left/top with percent based on container
+        box.style.left = `${(s.x / 480) * 100}%`
+        box.style.top  = `${(s.y / 360) * 100}%`
+        box.style.transform = `scaleX(-1)`
+      }
+
+      rafRef.current = requestAnimationFrame(animate)
+    }
+
+    rafRef.current = requestAnimationFrame(animate)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [])
+
   useEffect(() => {
     if (userInfo && !cameraActive) {
-      navigator.mediaDevices.getUserMedia({ 
-        video: { 
-            facingMode: "user", 
-            width: { ideal: 480 }, 
-            height: { ideal: 360 } 
-        } 
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 480 },
+          height: { ideal: 360 }
+        }
       })
         .then(stream => { if (videoRef.current) { videoRef.current.srcObject = stream; setCameraActive(true) } })
         .catch(err => console.error("Erreur Webcam:", err))
@@ -62,46 +107,52 @@ export default function Dashboard() {
   }, [userInfo, cameraActive])
 
   useEffect(() => {
-    if (!userInfo) return;
-    
+    if (!userInfo) return
+
     const newSocket = io(API_URL, {
-        transports: ["websocket", "polling"],
-        path: "/socket.io/",
-        secure: true,
+      transports: ["websocket", "polling"],
+      path: "/socket.io/",
+      secure: true,
     })
-    
+
     newSocket.on("connect", () => setIsConnected(true))
     newSocket.on("disconnect", () => setIsConnected(false))
-    
+
     newSocket.on("metrics_update", (data: any) => {
-      setSessionTime(data.session_time); 
+      setSessionTime(data.session_time)
       setIsRecording(data.is_recording)
-      setFaceCoords(data.face_coords)
-      
-      const newMetrics = { 
+
+      if (data.face_coords) {
+        targetCoordsRef.current = data.face_coords
+        setFaceVisible(true)
+      } else {
+        targetCoordsRef.current = null
+        setFaceVisible(false)
+      }
+
+      setCurrentMetrics({
         emotion: data.emotion,
-        engagement: data.metrics.engagement, 
+        engagement: data.metrics.engagement,
         satisfaction: data.metrics.satisfaction,
-        trust: data.metrics.trust, 
-        loyalty: data.metrics.loyalty, 
+        trust: data.metrics.trust,
+        loyalty: data.metrics.loyalty,
         opinion: data.metrics.opinion,
         conversion: data.metrics.conversion || 0,
         lbl_conv: data.metrics.lbl_conv || "Analysing..."
-      }
-      setCurrentMetrics(newMetrics)
+      })
     })
 
     setSocket(newSocket)
 
     const interval = setInterval(() => {
-        if (videoRef.current && canvasRef.current && newSocket.connected) {
-            const ctx = canvasRef.current.getContext('2d')
-            if (ctx) {
-                ctx.drawImage(videoRef.current, 0, 0, 480, 360)
-                const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.5)
-                newSocket.emit('process_frame', dataUrl)
-            }
+      if (videoRef.current && canvasRef.current && newSocket.connected) {
+        const ctx = canvasRef.current.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(videoRef.current, 0, 0, 480, 360)
+          const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.5)
+          newSocket.emit('process_frame', dataUrl)
         }
+      }
     }, 200)
 
     return () => { clearInterval(interval); newSocket.close() }
@@ -120,14 +171,14 @@ export default function Dashboard() {
       else if (type.startsWith('audio/')) setMediaType('audio')
       else if (type === 'application/pdf') setMediaType('pdf')
       else if (name.endsWith('.csv')) {
-          setMediaType('csv')
-          const reader = new FileReader()
-          reader.onload = (event) => {
-              const text = event.target?.result as string
-              const rows = text.split('\n').slice(0, 10).map(row => row.split(/[;,]/))
-              setCsvContent(rows)
-          }
-          reader.readAsText(file)
+        setMediaType('csv')
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const text = event.target?.result as string
+          const rows = text.split('\n').slice(0, 10).map(row => row.split(/[;,]/))
+          setCsvContent(rows)
+        }
+        reader.readAsText(file)
       }
       else if (name.endsWith('.xlsx') || name.endsWith('.xls')) setMediaType('excel')
       else setMediaType('other')
@@ -135,23 +186,23 @@ export default function Dashboard() {
   }
 
   const handleLogin = (e: React.FormEvent) => { e.preventDefault(); if (formData.firstName && formData.lastName) setUserInfo(formData) }
-  
-  const handleStartStop = () => { 
-      if (socket && userInfo) { 
-          if (isRecording) {
-              socket.emit("stop_session")
-              setIsRecording(false) 
-          } else {
-              setSessionTime(0)
-              socket.emit("start_session", userInfo)
-              setIsRecording(true) 
-          }
-      } 
+
+  const handleStartStop = () => {
+    if (socket && userInfo) {
+      if (isRecording) {
+        socket.emit("stop_session")
+        setIsRecording(false)
+      } else {
+        setSessionTime(0)
+        socket.emit("start_session", userInfo)
+        setIsRecording(true)
+      }
+    }
   }
 
   const handleReset = () => { if (socket) socket.emit("stop_session"); setSessionTime(0); setCurrentMetrics(prev => ({ ...prev, engagement: 0, emotion: "neutral", conversion: 0 })) }
-  const handleLogout = () => { setUserInfo(null); setSessionTime(0); setCameraActive(false); if(socket) socket.disconnect() }
-  const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`
+  const handleLogout = () => { setUserInfo(null); setSessionTime(0); setCameraActive(false); if (socket) socket.disconnect() }
+  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
   const getEmotionDisplay = (e: string) => { const map: any = { happy: "😄 JOIE", sad: "😢 TRISTESSE", angry: "😠 COLÈRE", surprise: "😲 SURPRISE", fear: "😨 PEUR", neutral: "😐 NEUTRE" }; return map[e] || e.toUpperCase() }
 
   const renderMediaContent = () => {
@@ -165,7 +216,6 @@ export default function Dashboard() {
         </div>
       )
     }
-
     switch (mediaType) {
       case 'video':
         return <video src={mediaUrl} controls className="w-full max-h-full rounded shadow-sm" />
@@ -241,15 +291,15 @@ export default function Dashboard() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName" className="text-xs uppercase tracking-widest text-slate-500">Prénom</Label>
-                <Input id="firstName" className="h-11" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} required />
+                <Input id="firstName" className="h-11" value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="lastName" className="text-xs uppercase tracking-widest text-slate-500">Nom</Label>
-                <Input id="lastName" className="h-11" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} required />
+                <Input id="lastName" className="h-11" value={formData.lastName} onChange={e => setFormData({ ...formData, lastName: e.target.value })} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="clientId" className="text-xs uppercase tracking-widest text-slate-500">Code Projet</Label>
-                <Input id="clientId" className="h-11" value={formData.clientId} onChange={e => setFormData({...formData, clientId: e.target.value})} />
+                <Input id="clientId" className="h-11" value={formData.clientId} onChange={e => setFormData({ ...formData, clientId: e.target.value })} />
               </div>
             </CardContent>
             <div className="p-6 pt-0">
@@ -277,9 +327,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 md:gap-4">
             <div className="flex items-center gap-2 md:gap-3 px-3 py-1.5 bg-slate-100 rounded-full border border-slate-200">
               <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-xs font-bold text-white">{userInfo.firstName.charAt(0)}</div>
-              <div className="flex flex-col">
-                <span className="text-sm font-bold text-slate-900 leading-none">{userInfo.firstName}</span>
-              </div>
+              <span className="text-sm font-bold text-slate-900 leading-none">{userInfo.firstName}</span>
             </div>
             <Button variant="ghost" size="icon" onClick={handleLogout} className="text-slate-500 hover:text-red-600">
               <X className="w-5 h-5" />
@@ -289,14 +337,13 @@ export default function Dashboard() {
       </header>
 
       <main className="flex-1 p-3 md:p-6 lg:p-8 overflow-y-auto flex flex-col gap-4 md:gap-6">
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
 
-          {/* WEBCAM + BUTTONS BELOW */}
+          {/* WEBCAM + BUTTONS */}
           <div className="flex flex-col gap-3">
-
-            {/* Camera card — no buttons inside anymore */}
             <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none h-[340px] lg:h-[420px]">
+              {/* Corner frames */}
               <div className="absolute top-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
               <div className="absolute top-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
               <div className="absolute bottom-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
@@ -307,26 +354,42 @@ export default function Dashboard() {
 
               <CardContent className="p-0 h-full relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
                 <canvas ref={canvasRef} width="480" height="360" className="hidden" />
-                <div className="absolute inset-0 w-full h-full relative">
+
+                <div className="absolute inset-0 w-full h-full">
                   <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
+
+                  {/* 
+                    ANTI-FLICKER FACE BOX
+                    - No CSS transition (causes flicker on mobile)
+                    - No React state for position (causes re-render flicker)
+                    - Coords applied directly via rAF loop to the DOM ref
+                    - will-change: transform tells Safari to GPU-accelerate this layer
+                  */}
                   <div
-                    className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear ${faceCoords ? 'opacity-100' : 'opacity-0'}`}
+                    ref={faceBoxRef}
+                    className="absolute border-2 border-green-500 z-50"
                     style={{
-                      left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%',
-                      top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%',
-                      width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%',
-                      height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%',
-                      transform: 'scaleX(-1)'
+                      willChange: "transform, left, top, width, height",
+                      opacity: faceVisible ? 1 : 0,
+                      left: 0,
+                      top: 0,
+                      width: 0,
+                      height: 0,
+                      transform: "scaleX(-1)",
+                      // No transition — rAF handles smoothing
                     }}
                   >
-                    <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
+                    <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">
+                      TARGET LOCKED
+                    </div>
                   </div>
                 </div>
+
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30">
                   <Target className="w-64 h-64 text-white stroke-1" />
                 </div>
 
-                {/* Timer + REC + Emotion — still inside camera as overlay */}
+                {/* Timer + REC + Emotion overlay */}
                 <div className="z-20 w-full px-4 pb-4 absolute bottom-0">
                   <div className="flex justify-between items-end">
                     <div>
@@ -345,7 +408,7 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* ✅ GO/STOP + RESET — OUTSIDE the camera */}
+            {/* GO/STOP + RESET outside camera */}
             <div className="flex items-center justify-center gap-4 py-4 px-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
               <Button
                 size="icon"
@@ -356,13 +419,10 @@ export default function Dashboard() {
               >
                 <RotateCcw className="h-5 w-5" />
               </Button>
-
               <Button
                 onClick={handleStartStop}
                 variant={isRecording ? "destructive" : "default"}
-                className={`h-14 px-12 text-lg font-bold rounded-full flex-1 max-w-[240px] transition-all hover:scale-105 ${
-                  !isRecording ? "bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-200" : "shadow-lg"
-                }`}
+                className={`h-14 px-12 text-lg font-bold rounded-full flex-1 max-w-[240px] transition-all hover:scale-105 ${!isRecording ? "bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-200" : "shadow-lg"}`}
               >
                 {isRecording
                   ? <><Square className="mr-2 h-5 w-5 fill-current" /><span suppressHydrationWarning>STOP</span></>
@@ -370,17 +430,14 @@ export default function Dashboard() {
                 }
               </Button>
             </div>
-
           </div>
 
           {/* MEDIA */}
           <Card className="border-slate-200 bg-white shadow-md flex flex-col h-[300px] lg:h-[500px]">
             <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-green-600" /> Support
-                </CardTitle>
-              </div>
+              <CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-green-600" /> Support
+              </CardTitle>
               <div>
                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="video/*,image/*,audio/*,application/pdf,.csv,.xlsx,.xls" className="hidden" />
                 <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="text-xs h-8 gap-2">
