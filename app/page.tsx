@@ -154,7 +154,7 @@ export default function Dashboard() {
   const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`
   const getEmotionDisplay = (e: string) => { const map: any = { happy: "😄 JOIE", sad: "😢 TRISTESSE", angry: "😠 COLÈRE", surprise: "😲 SURPRISE", fear: "😨 PEUR", neutral: "😐 NEUTRE" }; return map[e] || e.toUpperCase() }
 
-  // FONCTION D'AFFICHAGE DU MEDIA (POUR EVITER L'ERREUR DE BUILD)
+  // FONCTION D'AFFICHAGE DU MEDIA (CORRIGÉE)
   const renderMediaContent = () => {
     if (!mediaUrl) {
       return (
