@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, FileText, Music, FileSpreadsheet, File as FileIcon, Menu, X, Check } from "lucide-react"
+import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, FileText, Music, FileSpreadsheet, File as FileIcon, X } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
@@ -154,6 +154,51 @@ export default function Dashboard() {
   const formatTime = (s: number) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`
   const getEmotionDisplay = (e: string) => { const map: any = { happy: "😄 JOIE", sad: "😢 TRISTESSE", angry: "😠 COLÈRE", surprise: "😲 SURPRISE", fear: "😨 PEUR", neutral: "😐 NEUTRE" }; return map[e] || e.toUpperCase() }
 
+  // FONCTION D'AFFICHAGE DU MEDIA (POUR EVITER L'ERREUR DE BUILD)
+  const renderMediaContent = () => {
+    if (!mediaUrl) {
+      return (
+        <div className="text-center text-slate-400">
+            <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3"><Upload className="w-6 h-6 text-slate-300" /></div>
+            <p className="text-sm font-medium">Glissez un fichier</p>
+        </div>
+      )
+    }
+
+    switch (mediaType) {
+      case 'video':
+        return <video src={mediaUrl} controls className="w-full max-h-full rounded shadow-sm" />
+      case 'image':
+        return <img src={mediaUrl} alt="Support" className="w-full max-h-full object-contain rounded shadow-sm" />
+      case 'audio':
+        return (
+          <div className="w-full max-w-md bg-white p-6 rounded-xl shadow-lg border border-slate-200 text-center">
+             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"><Music className="w-8 h-8 text-green-600" /></div>
+             <h3 className="text-sm font-bold text-slate-800 mb-2 truncate">{mediaFile?.name}</h3>
+             <audio src={mediaUrl} controls className="w-full" />
+          </div>
+        )
+      case 'pdf':
+        return <iframe src={mediaUrl} className="w-full h-full rounded border border-slate-200 bg-white" title="PDF Viewer" />
+      case 'csv':
+        return (
+          <div className="w-full bg-white rounded border border-slate-200 overflow-hidden flex flex-col max-h-full">
+              <div className="p-2 bg-slate-50 border-b border-slate-100 font-mono text-xs font-bold text-slate-500 flex gap-2 items-center"><FileSpreadsheet className="w-4 h-4 text-green-600"/> CSV</div>
+              <div className="overflow-auto p-0"><table className="w-full text-xs text-left"><tbody>{csvContent.map((row, i) => (<tr key={i} className={i===0 ? "bg-slate-100 font-bold" : "border-b border-slate-50 hover:bg-slate-50"}>{row.map((cell, j) => (<td key={j} className="p-2 border-r border-slate-100 truncate max-w-[150px]">{cell}</td>))}</tr>))}</tbody></table></div>
+          )
+      case 'excel':
+         return (
+             <div className="text-center p-8 bg-white rounded-xl shadow-sm border border-slate-200 max-w-sm">
+                 <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4"><FileSpreadsheet className="w-10 h-10 text-green-600" /></div>
+                 <h3 className="text-lg font-bold text-slate-800 mb-2">Fichier Excel Chargé</h3>
+                 <p className="text-sm text-slate-500 bg-slate-50 p-2 rounded border border-slate-100 mb-4 break-all font-mono">{mediaFile?.name}</p>
+             </div>
+         )
+      default:
+        return (<div className="text-center p-8"><FileIcon className="w-12 h-12 text-slate-300 mx-auto mb-2"/><p className="text-slate-600 font-bold">{mediaFile?.name}</p></div>)
+    }
+  }
+
   if (!userInfo) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden text-slate-900">
@@ -256,30 +301,8 @@ export default function Dashboard() {
                 </div>
               </CardHeader>
               <CardContent className="p-4 flex items-center justify-center bg-slate-100 flex-1 relative overflow-auto">
-                  {mediaUrl ? (
-                      mediaType === 'video' ? <video src={mediaUrl} controls className="w-full max-h-full rounded shadow-sm" />
-                      : mediaType === 'image' ? <img src={mediaUrl} alt="Support" className="w-full max-h-full object-contain rounded shadow-sm" />
-                      : mediaType === 'audio' ? (
-                          <div className="w-full max-w-md bg-white p-6 rounded-xl shadow-lg border border-slate-200 text-center">
-                              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"><Music className="w-8 h-8 text-green-600" /></div>
-                              <h3 className="text-sm font-bold text-slate-800 mb-2 truncate">{mediaFile?.name}</h3>
-                              <audio src={mediaUrl} controls className="w-full" />
-                          </div>
-                      )
-                      : mediaType === 'pdf' ? <iframe src={mediaUrl} className="w-full h-full rounded border border-slate-200 bg-white" title="PDF Viewer" />
-                      : mediaType === 'csv' ? (
-                          <div className="w-full bg-white rounded border border-slate-200 overflow-hidden flex flex-col max-h-full">
-                              <div className="p-2 bg-slate-50 border-b border-slate-100 font-mono text-xs font-bold text-slate-500 flex gap-2 items-center"><FileSpreadsheet className="w-4 h-4 text-green-600"/> CSV</div>
-                              <div className="overflow-auto p-0"><table className="w-full text-xs text-left"><tbody>{csvContent.map((row, i) => (<tr key={i} className={i===0 ? "bg-slate-100 font-bold" : "border-b border-slate-50 hover:bg-slate-50"}>{row.map((cell, j) => (<td key={j} className="p-2 border-r border-slate-100 truncate max-w-[150px]">{cell}</td>))}</tr>))}</tbody></table></div>
-                          )
-                      )
-                      : (<div className="text-center p-8"><FileIcon className="w-12 h-12 text-slate-300 mx-auto mb-2"/><p className="text-slate-600 font-bold">{mediaFile?.name}</p></div>)
-                  ) : (
-                      <div className="text-center text-slate-400">
-                          <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3"><Upload className="w-6 h-6 text-slate-300" /></div>
-                          <p className="text-sm font-medium">Glissez un fichier</p>
-                      </div>
-                  )}
+                 {/* APPEL DE LA FONCTION SAFE POUR EVITER L'ERREUR DE BUILD */}
+                 {renderMediaContent()}
               </CardContent>
             </Card>
         </div>
