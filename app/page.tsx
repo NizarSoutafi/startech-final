@@ -2,16 +2,16 @@
 
 import { useState, useEffect, useRef } from "react"
 import MetricsPanel from "@/components/neurolink/metrics-panel"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, Film, Image as ImageIcon, FileText, Music, FileSpreadsheet, File, Menu, X } from "lucide-react"
+import { Play, Square, RotateCcw, Zap, Fingerprint, Shield, Target, Upload, FileText, Music, FileSpreadsheet, File as FileIcon, Menu, X, Check } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import Link from "next/link"
 
-// --- ADRESSE CORRIGÉE POUR L'ÉVÉNEMENT ---
+// ADRESSE DU BACKEND
 const API_URL = "https://persee-tech-startech-event-backend.hf.space"
 
 interface UserInfo { firstName: string; lastName: string; clientId: string }
@@ -40,7 +40,7 @@ export default function Dashboard() {
   const [faceCoords, setFaceCoords] = useState<any>(null)
   const [cameraActive, setCameraActive] = useState(false)
 
-  // --- ETATS MEDIA ---
+  // ETATS MEDIA
   const [mediaFile, setMediaFile] = useState<File | null>(null)
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
   const [mediaType, setMediaType] = useState<'video' | 'image' | 'pdf' | 'audio' | 'csv' | 'excel' | 'other' | null>(null)
@@ -49,7 +49,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (userInfo && !cameraActive) {
-      // FORCE LA CAMÉRA SELFIE SUR MOBILE
       navigator.mediaDevices.getUserMedia({ 
         video: { 
             facingMode: "user", 
@@ -158,22 +157,22 @@ export default function Dashboard() {
   if (!userInfo) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden text-slate-900">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-100 via-slate-50 to-white opacity-80"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-green-50 to-white opacity-80"></div>
         <Card className="w-full max-w-md border-slate-200 bg-white shadow-2xl relative z-10">
           <CardHeader className="text-center space-y-4">
             <div className="mx-auto w-20 h-20 rounded-full bg-green-50 flex items-center justify-center border border-green-100 shadow-sm"><Fingerprint className="w-10 h-10 text-green-600" /></div>
-            <div><CardTitle className="text-3xl font-bold tracking-tight text-slate-900">STARTECH <span className="text-green-600">ID</span></CardTitle><CardDescription className="text-slate-500">Identification biométrique du sujet</CardDescription></div>
+            <div><CardTitle className="text-3xl font-bold tracking-tight text-slate-900">STARTECH <span className="text-green-600">ID</span></CardTitle></div>
           </CardHeader>
           <form onSubmit={handleLogin}>
             <CardContent className="space-y-4">
-              <div className="space-y-2"><Label htmlFor="firstName" className="text-xs uppercase tracking-widest text-slate-500">Prénom</Label><Input id="firstName" placeholder="Ex: Jean" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} required /></div>
-              <div className="space-y-2"><Label htmlFor="lastName" className="text-xs uppercase tracking-widest text-slate-500">Nom</Label><Input id="lastName" placeholder="Ex: Dupont" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} required /></div>
-              <div className="space-y-2"><Label htmlFor="clientId" className="text-xs uppercase tracking-widest text-slate-500">Code Projet</Label><Input id="clientId" placeholder="Ex: PROJET-A12" className="bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500 h-11" value={formData.clientId} onChange={e => setFormData({...formData, clientId: e.target.value})} /></div>
+              <div className="space-y-2"><Label htmlFor="firstName" className="text-xs uppercase tracking-widest text-slate-500">Prénom</Label><Input id="firstName" className="h-11" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} required /></div>
+              <div className="space-y-2"><Label htmlFor="lastName" className="text-xs uppercase tracking-widest text-slate-500">Nom</Label><Input id="lastName" className="h-11" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} required /></div>
+              <div className="space-y-2"><Label htmlFor="clientId" className="text-xs uppercase tracking-widest text-slate-500">Code Projet</Label><Input id="clientId" className="h-11" value={formData.clientId} onChange={e => setFormData({...formData, clientId: e.target.value})} /></div>
             </CardContent>
-            <CardFooter><Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white h-12 text-lg font-bold shadow-lg shadow-green-200">INITIALISER SESSION</Button></CardFooter>
+            <div className="p-6 pt-0"><Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white h-12 text-lg font-bold">INITIALISER SESSION</Button></div>
           </form>
         </Card>
-        <div className="absolute bottom-6 right-6 z-20"><Link href="/admin"><Button variant="ghost" className="text-slate-500 hover:text-slate-900 hover:bg-slate-200 text-xs gap-2"><Shield className="w-3 h-3" /> Accès Admin</Button></Link></div>
+        <div className="absolute bottom-6 right-6 z-20"><Link href="/admin"><Button variant="ghost" className="text-slate-500 text-xs gap-2"><Shield className="w-3 h-3" /> Accès Admin</Button></Link></div>
       </div>
     )
   }
@@ -182,47 +181,42 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
         <div className="flex h-16 items-center px-4 md:px-6 justify-between">
-           <div className="flex items-center gap-3 font-bold text-xl tracking-tight text-slate-900"><div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_15px_#22c55e] animate-pulse" />STARTECH <span className="text-slate-400 font-normal hidden md:inline">VISION</span></div>
+           <div className="flex items-center gap-3 font-bold text-xl tracking-tight text-slate-900"><div className="w-3 h-3 rounded-full bg-green-500 shadow-lg animate-pulse" />STARTECH <span className="text-slate-400 font-normal hidden md:inline">VISION</span></div>
            <div className="flex items-center gap-2 md:gap-4">
               <div className="flex items-center gap-2 md:gap-3 px-3 py-1.5 bg-slate-100 rounded-full border border-slate-200">
-                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-700 flex items-center justify-center text-xs font-bold text-white">{userInfo.firstName.charAt(0)}{userInfo.lastName.charAt(0)}</div>
-                 <div className="flex flex-col"><span className="text-sm font-bold text-slate-900 leading-none">{userInfo.firstName}</span><span className="text-[10px] text-slate-500 leading-none mt-1 max-w-[80px] truncate">{userInfo.clientId || "GUEST"}</span></div>
+                 <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-xs font-bold text-white">{userInfo.firstName.charAt(0)}</div>
+                 <div className="flex flex-col"><span className="text-sm font-bold text-slate-900 leading-none">{userInfo.firstName}</span></div>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="text-slate-500 hover:text-red-600 hover:bg-red-50"><X className="w-5 h-5"/></Button>
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="text-slate-500 hover:text-red-600"><X className="w-5 h-5"/></Button>
            </div>
         </div>
       </header>
 
       <main className="flex-1 p-3 md:p-6 lg:p-8 overflow-y-auto flex flex-col gap-4 md:gap-6">
         
-        {/* LIGNE HAUTE : CAMÉRA + MÉDIA (Responsive Grid) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
             
-            {/* 1. WEBCAM (Hauteur ajustée pour mobile) */}
+            {/* WEBCAM */}
             <Card className="border-slate-300 bg-white shadow-xl relative overflow-hidden flex-none group h-[400px] lg:h-[500px]">
-              {/* Cadre Vert (Overlay) */}
+              {/* Cadre Vert (Overlay) - Utilisation de CSS inline pour éviter les erreurs de build */}
               <div className="absolute top-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-t-4 border-green-500 z-20 rounded-tl-lg opacity-80" />
               <div className="absolute top-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-t-4 border-green-500 z-20 rounded-tr-lg opacity-80" />
               <div className="absolute bottom-4 left-4 w-12 h-12 lg:w-16 lg:h-16 border-l-4 border-b-4 border-green-500 z-20 rounded-bl-lg opacity-80" />
               <div className="absolute bottom-4 right-4 w-12 h-12 lg:w-16 lg:h-16 border-r-4 border-b-4 border-green-500 z-20 rounded-br-lg opacity-80" />
               
-              <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-[0_0_20px_#22c55e] z-10 animate-[scan_3s_ease-in-out_infinite] transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} style={{ top: '0%' }} />
+              <div className={`absolute inset-x-0 h-0.5 bg-green-500 shadow-lg z-10 transition-opacity duration-300 ${isRecording ? 'opacity-100 animate-pulse' : 'opacity-0'}`} style={{ top: '50%' }} />
               <div className={`absolute top-0 w-full h-1 bg-red-500 animate-pulse z-30 transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`} />
 
               <CardContent className="p-0 h-full relative flex flex-col items-center justify-center bg-black overflow-hidden rounded-md m-1">
                 <canvas ref={canvasRef} width="480" height="360" className="hidden" />
                 <div className="absolute inset-0 w-full h-full relative">
-                    {/* Vidéo avec playsInline pour iPhone */}
                     <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                    
-                    {/* Target Locked Box */}
-                    <div className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear shadow-[0_0_15px_#22c55e] ${faceCoords ? 'opacity-100' : 'opacity-0'}`} style={{ left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%', top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%', width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%', height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%', transform: 'scaleX(-1)' }}>
+                    <div className={`absolute border-2 border-green-500 z-50 transition-all duration-100 ease-linear ${faceCoords ? 'opacity-100' : 'opacity-0'}`} style={{ left: faceCoords ? `${(faceCoords.x / 480) * 100}%` : '0%', top: faceCoords ? `${(faceCoords.y / 360) * 100}%` : '0%', width: faceCoords ? `${(faceCoords.w / 480) * 100}%` : '0%', height: faceCoords ? `${(faceCoords.h / 360) * 100}%` : '0%', transform: 'scaleX(-1)' }}>
                           <div className="absolute -top-6 left-0 bg-green-500 text-black text-[10px] font-bold px-1 scale-x-[-1]">TARGET LOCKED</div>
                     </div>
                 </div>
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-30"><Target className="w-64 h-64 text-white stroke-1" /></div>
                 
-                {/* HUD Infos */}
                 <div className="z-20 w-full px-4 md:px-8 pb-4 md:pb-8 mt-auto absolute bottom-0">
                   <div className="flex justify-between items-end mb-4 md:mb-8">
                     <div>
@@ -243,7 +237,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center justify-center gap-4 md:gap-8 pt-4 md:pt-6 border-t border-white/20">
                     <Button size="icon" variant="outline" onClick={handleReset} className="h-12 w-12 md:h-14 md:w-14 rounded-full border border-white/20 bg-white/10 text-white hover:bg-white hover:text-black backdrop-blur-md transition-all"><RotateCcw className="h-5 w-5" /></Button>
-                    <Button onClick={handleStartStop} variant={isRecording ? "destructive" : "default"} className={`px-8 md:px-10 h-12 md:h-14 text-lg font-bold rounded-full transition-all hover:scale-105 ${!isRecording ? "bg-green-600 hover:bg-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)]" : "shadow-[0_0_20px_rgba(239,68,68,0.4)]"}`}>
+                    <Button onClick={handleStartStop} variant={isRecording ? "destructive" : "default"} className={`px-8 md:px-10 h-12 md:h-14 text-lg font-bold rounded-full transition-all hover:scale-105 ${!isRecording ? "bg-green-600 hover:bg-green-500 text-white" : "shadow-lg"}`}>
                         {isRecording ? <Square className="mr-2 h-5 w-5 fill-current" /> : <Play className="mr-2 h-5 w-5 fill-current" />}
                         <span suppressHydrationWarning>{isRecording ? "STOP" : "GO"}</span>
                     </Button>
@@ -252,7 +246,7 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* 2. MEDIA (Hauteur ajustée) */}
+            {/* MEDIA */}
             <Card className="border-slate-200 bg-white shadow-md flex flex-col h-[300px] lg:h-[500px]">
               <CardHeader className="py-3 px-4 border-b border-slate-100 bg-slate-50/50 flex flex-row items-center justify-between">
                 <div><CardTitle className="text-sm uppercase tracking-wide text-slate-700 flex items-center gap-2"><FileText className="w-4 h-4 text-green-600" /> Support</CardTitle></div>
@@ -279,7 +273,7 @@ export default function Dashboard() {
                               <div className="overflow-auto p-0"><table className="w-full text-xs text-left"><tbody>{csvContent.map((row, i) => (<tr key={i} className={i===0 ? "bg-slate-100 font-bold" : "border-b border-slate-50 hover:bg-slate-50"}>{row.map((cell, j) => (<td key={j} className="p-2 border-r border-slate-100 truncate max-w-[150px]">{cell}</td>))}</tr>))}</tbody></table></div>
                           )
                       )
-                      : (<div className="text-center p-8"><File className="w-12 h-12 text-slate-300 mx-auto mb-2"/><p className="text-slate-600 font-bold">{mediaFile?.name}</p></div>)
+                      : (<div className="text-center p-8"><FileIcon className="w-12 h-12 text-slate-300 mx-auto mb-2"/><p className="text-slate-600 font-bold">{mediaFile?.name}</p></div>)
                   ) : (
                       <div className="text-center text-slate-400">
                           <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3"><Upload className="w-6 h-6 text-slate-300" /></div>
@@ -290,7 +284,6 @@ export default function Dashboard() {
             </Card>
         </div>
 
-        {/* LIGNE BASSE : INDICATEURS */}
         <div className="w-full flex flex-col gap-4">
             <MetricsPanel metrics={currentMetrics} />
             <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm flex justify-between items-center text-xs font-mono text-slate-500">
@@ -300,7 +293,6 @@ export default function Dashboard() {
         </div>
 
       </main>
-      <style jsx global>{` @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } } `}</style>
     </div>
   )
 }
