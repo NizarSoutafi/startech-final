@@ -71,18 +71,39 @@ export default function AdminDashboard() {
       return (engagement * 0.4) + (satisfaction * 0.6)
   }
 
+  // --- API CALLS ---
+  // MODIFIÉ : fetchSessions prend maintenant en compte si on veut la corbeille ou non, et si on doit réinitialiser
+  const fetchSessions = async (fetchTrash = isTrashView, shouldReset = false) => {
+    setIsLoading(true)
+    try {
+      const endpoint = fetchTrash ? '/api/trash' : '/api/sessions'
+      const res = await fetch(`${API_URL}${endpoint}`)
+      const data = await res.json()
+      setSessions(data || [])
+      
+      // On ne vide les cases que si shouldReset est vrai
+      if (shouldReset) {
+          setSelectedIds([])
+          setComparisonMode(false)
+          setSelectedSession(null)
+      }
+    } catch (e) { console.error(e) } finally { setIsLoading(false) }
+  }
+
   // 1. Vérifier la session
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) fetchSessions(false)
+      // On ne réinitialise pas par défaut au chargement de session
+      if (session) fetchSessions(isTrashView, false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) fetchSessions(false)
+      // Empêche la réinitialisation au changement d'onglet
+      if (session) fetchSessions(isTrashView, false)
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [isTrashView])
 
   // --- AUTH ---
   const handleLogin = async (e: React.FormEvent) => {
@@ -96,21 +117,6 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     setSession(null); setSessions([]); setSelectedSession(null)
-  }
-
-  // --- API CALLS ---
-  // MODIFIÉ : fetchSessions prend maintenant en compte si on veut la corbeille ou non
-  const fetchSessions = async (fetchTrash = isTrashView) => {
-    setIsLoading(true)
-    try {
-      const endpoint = fetchTrash ? '/api/trash' : '/api/sessions'
-      const res = await fetch(`${API_URL}${endpoint}`)
-      const data = await res.json()
-      setSessions(data || [])
-      setSelectedIds([])
-      setComparisonMode(false)
-      setSelectedSession(null)
-    } catch (e) { console.error(e) } finally { setIsLoading(false) }
   }
 
   const handleSelectSession = async (sessionId: number) => {
@@ -440,7 +446,7 @@ export default function AdminDashboard() {
         <div><h1 className="text-3xl font-bold tracking-tight">STARTECH <span className="text-green-600">ADMIN</span></h1><p className="text-slate-500">Supervision & Gestion de Masse</p></div>
         <div className="flex gap-4 items-center">
           <Link href="/"><Button variant="outline" className="gap-2"><ArrowLeft className="w-4 h-4" /> Dashboard</Button></Link>
-          <Button onClick={() => fetchSessions(isTrashView)} className="bg-slate-900 text-white gap-2"><RefreshCcw className="w-4 h-4" /> Actualiser</Button>
+          <Button onClick={() => fetchSessions(isTrashView, false)} className="bg-slate-900 text-white gap-2"><RefreshCcw className="w-4 h-4" /> Actualiser</Button>
           <Button onClick={handleLogout} variant="destructive" size="icon"><LogOut className="w-4 h-4" /></Button>
         </div>
       </header>
@@ -451,10 +457,10 @@ export default function AdminDashboard() {
           <Card className="border-slate-200 shadow-sm bg-white h-[calc(100vh-12rem)] flex flex-col">
             
             <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50 p-4 space-y-3">
-              {/* NOUVEAU : Toggle Corbeille / Sessions */}
+              {/* Toggle Corbeille / Sessions */}
               <div className="flex justify-between items-center mb-1">
                   <span className="text-sm font-bold text-slate-700">{isTrashView ? "🗑️ Corbeille" : "📁 Sessions"}</span>
-                  <Button size="sm" variant="outline" className="h-7 text-xs text-slate-600" onClick={() => { setIsTrashView(!isTrashView); fetchSessions(!isTrashView); }}>
+                  <Button size="sm" variant="outline" className="h-7 text-xs text-slate-600" onClick={() => { setIsTrashView(!isTrashView); fetchSessions(!isTrashView, true); }}>
                       {isTrashView ? "Retour" : "Corbeille"}
                   </Button>
               </div>
@@ -507,7 +513,7 @@ export default function AdminDashboard() {
                         <div className="pl-6">
                             <div className="flex justify-between items-center mb-1">
                               <span className="font-bold text-slate-900 text-sm truncate w-24">{session.first_name} {session.last_name}</span>
-                              {/* MODIFIÉ : Affiche Restaurer ou Supprimer selon la vue */}
+                              {/* Affiche Restaurer ou Supprimer selon la vue */}
                               {isTrashView ? (
                                   <Button size="icon" variant="ghost" className="h-6 w-6 text-slate-300 hover:text-green-600 opacity-0 group-hover:opacity-100" onClick={(e) => handleRestore(e, session.id)} title="Restaurer"><RefreshCcw className="w-3 h-3" /></Button>
                               ) : (
