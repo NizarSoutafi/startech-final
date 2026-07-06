@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Trash2, RefreshCcw, ArrowLeft, User, Activity, BarChart3, Download, CheckSquare, Square, X, Lock, LogOut, FileText, Users, PieChart, Smile, ShoppingCart, ShieldCheck, Search, Image as ImageIcon } from "lucide-react"
 import Link from "next/link"
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart as RePieChart, Pie, Cell, ReferenceLine } from 'recharts'
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { toPng } from "html-to-image"
@@ -59,7 +59,13 @@ export default function AdminDashboard() {
   const [groupDominantEmotion, setGroupDominantEmotion] = useState<string>("N/A")
   const [emotionDistribution, setEmotionDistribution] = useState<any[]>([])
   const [isComparing, setIsComparing] = useState(false)
-  const [isTrashView, setIsTrashView] = useState(false) // NOUVEAU : État pour la corbeille
+  const [isTrashView, setIsTrashView] = useState(false)
+
+  // NOUVEAUX STATES POUR TIMELINE ET VIDEO
+  const [groupTimeline, setGroupTimeline] = useState<any[]>([])
+  const [refVideoUrl, setRefVideoUrl] = useState<string | null>(null)
+  const adminVideoRef = useRef<HTMLVideoElement>(null)
+  const [chartCursor, setChartCursor] = useState<number | null>(null)
 
   // Références pour capturer les images
   const chartRef = useRef<HTMLDivElement>(null)
@@ -248,6 +254,32 @@ export default function AdminDashboard() {
       }
 
       setComparisonData(stats)
+
+      // CALCUL DE LA TIMELINE AGRÉGÉE
+      const timelineMap = new Map<number, any>()
+      results.forEach((res: any) => {
+        (res.data || []).forEach((m: any) => {
+          const t = Math.floor(m.session_time)
+          if (!timelineMap.has(t)) timelineMap.set(t, { time: t, count: 0, engagement: 0, satisfaction: 0, credibility: 0, conviction: 0 })
+          const entry = timelineMap.get(t)
+          entry.count++
+          entry.engagement += m.engagement_val
+          entry.satisfaction += m.satisfaction_val
+          entry.credibility += m.trust_val
+          entry.conviction += (m.engagement_val * 0.4 + m.satisfaction_val * 0.6)
+        })
+      })
+
+      const aggregatedTimeline = Array.from(timelineMap.values()).map((entry: any) => ({
+        session_time: entry.time,
+        engagement_val: Math.round(entry.engagement / entry.count),
+        satisfaction_val: Math.round(entry.satisfaction / entry.count),
+        trust_val: Math.round(entry.credibility / entry.count),
+        conviction_val: Math.round(entry.conviction / entry.count),
+      })).sort((a, b) => a.session_time - b.session_time)
+
+      setGroupTimeline(aggregatedTimeline)
+
     } catch (error) {
       console.error("Erreur comparaison", error)
     } finally {
@@ -618,6 +650,59 @@ export default function AdminDashboard() {
                         </ResponsiveContainer>
                     </CardContent>
                 </Card>
+
+                {/* TIMELINE AGREGEE + LECTEUR VIDEO */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
+                        <CardHeader className="flex flex-row justify-between items-center">
+                            <CardTitle className="text-lg flex items-center gap-2"><Activity className="w-5 h-5 text-blue-600"/> Timeline Moyenne du Groupe</CardTitle>
+                        </CardHeader>
+                        <CardContent className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={groupTimeline} margin={{ top: 10, right: 30, left: 0, bottom: 0 }} onClick={(e: any) => {
+                                    if (e && e.activeLabel !== undefined && adminVideoRef.current) {
+                                        adminVideoRef.current.currentTime = e.activeLabel
+                                    }
+                                }}>
+                                    <defs>
+                                        <linearGradient id="colorEngGrp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/><stop offset="95%" stopColor="#22c55e" stopOpacity={0}/></linearGradient>
+                                        <linearGradient id="colorSatGrp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/><stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/></linearGradient>
+                                    </defs>
+                                    <XAxis dataKey="session_time" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                                    <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                    <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px' }} />
+                                    <Legend />
+                                    <Area type="monotone" name="Intention Moy." dataKey="engagement_val" stroke="#22c55e" fillOpacity={1} fill="url(#colorEngGrp)" strokeWidth={2} activeDot={{ r: 6 }} isAnimationActive={false} />
+                                    <Area type="monotone" name="Satisfaction Moy." dataKey="satisfaction_val" stroke="#3b82f6" fillOpacity={1} fill="url(#colorSatGrp)" strokeWidth={2} isAnimationActive={false} />
+                                    {chartCursor !== null && <ReferenceLine x={chartCursor} stroke="red" strokeDasharray="3 3" />}
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-slate-200 shadow-sm bg-black overflow-hidden relative flex flex-col h-[380px]">
+                        {!refVideoUrl ? (
+                            <div className="flex-1 flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-700 m-4 rounded-xl text-slate-400 text-center">
+                                <ImageIcon className="w-12 h-12 mb-4 text-slate-500" />
+                                <p className="text-sm mb-2">Uploadez la vidéo de référence pour la synchroniser avec la Timeline ci-contre.</p>
+                                <Input type="file" accept="video/*" className="max-w-xs text-xs text-white" onChange={(e) => {
+                                    if (e.target.files && e.target.files[0]) setRefVideoUrl(URL.createObjectURL(e.target.files[0]))
+                                }} />
+                            </div>
+                        ) : (
+                            <video
+                                ref={adminVideoRef}
+                                src={refVideoUrl}
+                                controls
+                                className="w-full h-full object-contain"
+                                onTimeUpdate={() => {
+                                    if (adminVideoRef.current) setChartCursor(Math.floor(adminVideoRef.current.currentTime))
+                                }}
+                            />
+                        )}
+                    </Card>
+                </div>
              </div>
           ) : selectedSession ? (
             /* VUE INDIVIDUELLE */

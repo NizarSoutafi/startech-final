@@ -118,11 +118,18 @@ async def stop_session(sid):
     if sid in sessions: sessions[sid]["active"] = False
 
 @sio.event
-async def process_frame(sid, data_uri):
+async def process_frame(sid, payload):
     if sid not in sessions: return
 
     try:
         # A. Décodage
+        if isinstance(payload, dict):
+            data_uri = payload.get("image", "")
+            media_time = payload.get("mediaTime", None)
+        else:
+            data_uri = payload
+            media_time = None
+
         encoded_data = data_uri.split(',')[1]
         nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -131,34 +138,28 @@ async def process_frame(sid, data_uri):
         result = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False, silent=True)
         data = result[0] if isinstance(result, list) else result
 
-        # --- CORRECTION INTELLIGENTE (Le "Comedy Patch") ---
-        raw_emotion = data['dominant_emotion']
-        raw_scores = data['emotion'] # Les scores bruts de toutes les émotions
+        # --- ALGORITHME BIOMÉTRIQUE SCIENTIFIQUE (Modèle Circomplexe de Russell) ---
+        raw_scores = data['emotion'] # Dictionnaire des probabilités
+        
+        # L'émotion dominante réelle
+        emotion = data['dominant_emotion']
+        emotion_score = data['emotion'][emotion]
 
-        # 1. Correction du Rire (Transforme la "Fausse Colère/Tristesse" en Joie)
-        # Si l'IA voit Colère/Peur/Tristesse MAIS qu'il y a un peu de joie (>5%), c'est du rire.
-        if raw_emotion in ["angry", "sad", "fear", "disgust"]:
-            if raw_scores["happy"] > 5: 
-                emotion = "happy"
-                emotion_score = raw_scores["happy"] + 40 # On booste le score
-            else:
-                # Si vraiment pas de joie, on bascule souvent sur Surprise ou Neutre en comédie
-                emotion = "surprise" 
-                emotion_score = raw_scores["surprise"]
+        # 1. Poids de Valence (Positivité vs Négativité)
+        v_weights = {
+            'happy': 1.0, 'surprise': 0.1, 'neutral': 0.0,
+            'sad': -0.8, 'angry': -0.8, 'fear': -0.8, 'disgust': -0.9
+        }
         
-        # 2. Suppression du "Faux Neutre" (Si on sourit un peu, on n'est pas neutre)
-        elif raw_emotion == "neutral":
-            if raw_scores["happy"] > 15: # Seuil bas : un petit sourire suffit
-                emotion = "happy"
-                emotion_score = raw_scores["happy"] + 20
-            else:
-                emotion = "neutral"
-                emotion_score = raw_scores["neutral"]
-        
-        # 3. Si c'est déjà Happy
-        else:
-            emotion = raw_emotion
-            emotion_score = data['emotion'][emotion]
+        # 2. Poids d'Arousal (Intensité / Activation)
+        a_weights = {
+            'happy': 0.6, 'surprise': 0.9, 'neutral': 0.1,
+            'sad': 0.2, 'angry': 0.8, 'fear': 0.9, 'disgust': 0.5
+        }
+
+        # Calcul continu de Valence et Arousal basé sur toutes les émotions détectées
+        valence = sum((raw_scores.get(em, 0) / 100.0) * v_weights.get(em, 0.0) for em in v_weights)
+        arousal = sum((raw_scores.get(em, 0) / 100.0) * a_weights.get(em, 0.0) for em in a_weights)
 
         # C. Coordonnées & Lissage (Fix Jitter)
         region = data['region']
@@ -172,57 +173,38 @@ async def process_frame(sid, data_uri):
         else:
              face_coords = camera_state["prev_coords"]
 
-        # D. Calcul KPIs (Mise à jour avec la logique V-A-D et Correction Positive)
+        # D. Time Update
         current_time = 0
         if sessions[sid]["active"]:
-            current_time = int(time.time() - sessions[sid]["start_time"])
+            if media_time is not None:
+                current_time = int(media_time)
+            else:
+                current_time = int(time.time() - sessions[sid]["start_time"])
 
-        # --- ALGORITHME SCIENTIFIQUE V-A-D (Ajusté pour le client) ---
-        
-        # 1. VALENCE (-1.0 à 1.0)
-        valence = 0.0
-        if emotion == "happy": valence = 1.0     # Joie maximale
-        elif emotion == "surprise": valence = 0.6 # Surprise très positive ici
-        elif emotion == "neutral": valence = 0.2  # Neutre est vu comme "Attentif" (Positif)
-        elif emotion == "sad": valence = -0.2     # Tristesse impacte moins le score
-        elif emotion in ["fear", "angry", "disgust"]: valence = -0.3
-
-        # 2. AROUSAL (Intensité)
-        arousal = (float(emotion_score) / 100.0) if emotion_score else 0.5
-        # En comédie, l'intensité est souvent forte
-        if emotion == "happy": arousal = max(0.6, arousal) 
-        
         noise = random.uniform(-0.02, 0.02)
-
         def clamp(n): return max(0, min(100, int(n)))
 
-        # CALCUL DES INDICATEURS (Boostés)
+        # CALCUL DES INDICATEURS (Objectifs)
         
-        # Engagement : Si Happy ou Surprise, l'engagement est très fort
-        base_eng = arousal * 100
-        if emotion in ["happy", "surprise"]: base_eng += 15
-        if emotion == "neutral": base_eng = max(50, base_eng) # On ne descend jamais sous 50 en neutre
-        val_eng = clamp(base_eng + (noise * 100))
+        # Engagement : Lié directement à l'Arousal (intensité émotionnelle)
+        val_eng = clamp((arousal * 100) + (noise * 100))
 
-        # Satisfaction : Très permissive sur la joie
-        val_sat = clamp(((valence + 0.8) / 1.8) * 100 + (noise * 50)) 
-        if emotion == "happy": val_sat = clamp(val_sat + 10)
+        # Satisfaction : Liée directement à la Valence (Positivité) mappée de [-1, 1] vers [0, 100]
+        val_sat = clamp(((valence + 1.0) / 2.0) * 100 + (noise * 50)) 
 
-        # Crédibilité (Trust)
-        val_tru = 60 # Base plus haute
-        if emotion == "neutral": val_tru = 70 + (arousal * 20)
-        elif emotion == "happy": val_tru = 80 + (arousal * 10)
-        val_tru = clamp(val_tru + (noise * 20))
+        # Crédibilité (Trust) : Augmente avec une valence positive, baisse drastiquement avec colère/dégoût
+        trust_score = 50 + (valence * 30) - (arousal * 10 if valence < 0 else 0)
+        val_tru = clamp(trust_score + (noise * 20))
 
-        # Conviction (ex-CTA)
+        # Conviction : Requiert un fort engagement ET une bonne satisfaction
         if valence > 0:
             conviction_score = (val_eng * 0.4) + (val_sat * 0.6)
         else:
-            conviction_score = val_eng * 0.2 # On pénalise moins
+            conviction_score = val_eng * 0.1 # Pénalité lourde si émotions négatives
         val_conv = clamp(conviction_score)
 
-        # Labels
-        lbl_eng = "Fort 🔥" if val_eng > 60 else "Moyen 😐"
+        # Labels stricts
+        lbl_eng = "Fort 🔥" if val_eng > 60 else ("Moyen 😐" if val_eng > 30 else "Faible 💤")
         lbl_sat = "Positif 😃" if val_sat > 55 else ("Négatif 😡" if val_sat < 30 else "Neutre 😐")
         lbl_conv = "CONVAINCU 🚀" if val_conv > 70 else ("Intéressé 👍" if val_conv > 45 else "Hésitant ✋")
 
